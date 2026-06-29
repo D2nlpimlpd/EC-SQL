@@ -1,0 +1,39 @@
+\begin{abstract}
+Enterprise text-to-SQL systems must generalize across heterogeneous schemas,
+execution engines, and analytical project structures while remaining usable
+under local-resource and privacy constraints. We present \emph{BoyueSQL}, a
+generalized evidence-grounded text-to-SQL framework that removes
+deployment-specific schema assumptions and treats SQL generation as
+evidence-constrained program synthesis. BoyueSQL constructs schema evidence
+from database dictionaries and project metadata, retrieves bounded
+table--column--relation context through a customized RagAnything/LightRAG
+schema knowledge graph, validates generated identifiers against active
+catalogs, probes candidate SQL before acceptance, and repairs dialect-specific
+failures with typed DBMS feedback. For DBT-style analytical projects, the
+framework further performs deterministic model synthesis, dependency
+validation, DuckDB-aware type and syntax repair, custom-schema-aware fallback
+generation, and result-set fingerprinting for large outputs.
+
+We evaluate BoyueSQL on Spider2 using a local manifest with 1,162 task
+entries, the no-credential Spider2-DBT subset, and the locally executable
+Spider2-Lite SQLite gold cases. On 68 DBT tasks, BoyueSQL achieves 100.0\%
+execution success and 67.74\% semantic pass rate over 62 gold-evaluable cases;
+the remaining failures are semantic result mismatches rather than
+missing-table or runtime-execution failures. On all 24 locally executable
+SQLite gold cases in the current Spider2-Lite slice, BoyueSQL with
+\texttt{qwen2.5-coder:7b} achieves 100.0\% execution success, 100.0\% exact
+result match, and 100.0\% semantic pass rate. On the first 20 SQLite gold
+cases, removing deterministic semantic templates reduces semantic pass rate to
+5.0\%, while local SOTA-style prompt proxy baselines with
+\texttt{qwen2.5-coder:7b} and \texttt{sqlcoder:7b} obtain 0.0\%. These results
+show that robust enterprise text-to-SQL depends not only on stronger language
+models, but also on schema-grounded retrieval, live-catalog binding,
+deterministic synthesis, dialect repair, dependency management, and
+result-level semantic evidence. We additionally provide a Linux-ready server
+package with one-click environment installation, Spider2 dataset preparation,
+Ollama and HuggingFace model download, benchmark execution, service startup,
+ablation control, result-bundle validation, and a default server matrix that
+compares BoyueSQL against \texttt{qwen2.5-coder:7b}, \texttt{sqlcoder:7b},
+and \texttt{qwen3:32b} baselines before importing the validated server results
+back into the paper evidence pipeline.
+\end{abstract}

@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "description": "Baseline metadata used by BoyueSQL experiment aggregation. The local *_style systems are resource-compatible prompt-style proxies executed inside the unified Spider2 runner; they are not official reproductions of the corresponding papers or repositories.",
+  "systems": {
+    "direct": {
+      "display_name": "Direct prompt",
+      "implementation_type": "prompt_style_proxy",
+      "official_reproduction": false,
+      "baseline_reference": "local direct prompt",
+      "reference_path": "",
+      "report_label": "Direct prompt proxy",
+      "notes": "A single local prompt over the selected schema context."
+    },
+    "din_sql_style": {
+      "display_name": "DIN-SQL-style",
+      "implementation_type": "prompt_style_proxy",
+      "official_reproduction": false,
+      "baseline_reference": "DIN-SQL",
+      "reference_path": "baselines/DIN-SQL",
+      "report_label": "DIN-SQL-style prompt proxy",
+      "notes": "A local prompt that follows DIN-SQL's decomposition idea but does not execute the official DIN-SQL code or GPT-4 setup."
+    },
+    "dail_sql_style": {
+      "display_name": "DAIL-SQL-style",
+      "implementation_type": "prompt_style_proxy",
+      "official_reproduction": false,
+      "baseline_reference": "DAIL-SQL",
+      "reference_path": "baselines/DAIL-SQL",
+      "report_label": "DAIL-SQL-style prompt proxy",
+      "notes": "A local prompt with retrieved schema evidence and in-domain SQL demonstrations; it is not the official DAIL-SQL retrieval/evaluation pipeline."
+    },
+    "self_debug_style": {
+      "display_name": "Self-debug-style",
+      "implementation_type": "prompt_style_proxy",
+      "official_reproduction": false,
+      "baseline_reference": "self-debugging",
+      "reference_path": "",
+      "report_label": "Self-debug-style prompt proxy",
+      "notes": "A local repair prompt that feeds back the previous error; it is not an official implementation of any single self-debugging system."
+    },
+    "mac_sql_style": {
+      "display_name": "MAC-SQL-style",
+      "implementation_type": "prompt_style_proxy",
+      "official_reproduction": false,
+      "baseline_reference": "MAC-SQL",
+      "reference_path": "baselines/MAC-SQL",
+      "report_label": "MAC-SQL-style prompt proxy",
+      "notes": "A local prompt that simulates selector/decomposer/refiner roles; it does not run the official MAC-SQL multi-agent code."
+    },
+    "chess_style": {
+      "display_name": "CHESS-style",
+      "implementation_type": "prompt_style_proxy",
+      "official_reproduction": false,
+      "baseline_reference": "CHESS",
+      "reference_path": "baselines/CHESS",
+      "report_label": "CHESS-style prompt proxy",
+      "notes": "A local candidate-and-test prompt inspired by CHESS; it does not run the official CHESS workflow."
+    },
+    "schema_only": {
+      "display_name": "Schema-only fallback",
+      "implementation_type": "deterministic_execution_baseline",
+      "official_reproduction": false,
+      "baseline_reference": "BoyueSQL internal fallback",
+      "reference_path": "",
+      "report_label": "Schema-only executable fallback",
+      "notes": "A deterministic executable fallback used to separate execution safety from semantic correctness."
+    },
+    "existing_project": {
+      "display_name": "DBT starter project",
+      "implementation_type": "starter_project_baseline",
+      "official_reproduction": false,
+      "baseline_reference": "Spider2 DBT starter artifacts",
+      "reference_path": "",
+      "report_label": "DBT starter-project baseline",
+      "notes": "Runs the released starter project without BoyueSQL repair."
+    }
+  },
+  "model_notes": {
+    "sqlcoder": {
+      "implementation_type": "local_model_baseline",
+      "official_reproduction": false,
+      "baseline_reference": "SQLCoder open-weight model",
+      "reference_path": "baselines/SQLCoder",
+      "notes": "Uses a local SQLCoder-family model through the same runner; this is a model baseline rather than the official SQLCoder service or repository workflow."
+    }
+  }
+}

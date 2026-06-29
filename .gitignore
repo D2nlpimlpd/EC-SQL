@@ -1,0 +1,99 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Local caches and generated storage
+cache/
+rag_cache/
+raganything_storage/
+artifacts/
+*.log
+.tmp_*/
+tmp/
+pdf_extracted_images/
+pdf_page_renders/
+
+# Large local datasets and database files
+data/
+datasets/
+*.sqlite
+*.sqlite3
+*.duckdb
+*.db
+*.index
+*.zip
+*.tar.gz
+
+# Large/generated documents and media kept out of source commits
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ipynb
+!figures/
+!figures/boyuesql_workflow.pdf
+
+# Local scratch outputs
+tail.txt
+syntax_check.txt
+extract_log.txt
+merge_out.txt
+fields_output.txt
+ollama_check.txt
+
+# Generated paper/package outputs
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Vendored web dependencies
+node_modules/
+third_party/**/node_modules/
+
+# Baseline generated outputs
+baselines/**/results/
+baselines/**/img/
+baselines/CHESS/
+baselines/DAIL-SQL/
+baselines/DB-GPT-Hub/
+baselines/DIN-SQL/
+baselines/MAC-SQL/
+baselines/SQLCoder/
+!baselines/
+!baselines/baseline_manifest.json
+
+# Heavy vendored UI assets that are not used by BoyueSQL experiments
+third_party/lightrag_hku-1.5.0/lightrag/api/webui/
+third_party/lightrag_hku-1.5.0/lightrag/api/static/
+third_party/*/*.egg-info/
+third_party/*/PKG-INFO
+third_party/raganything-1.3.1/examples/
+third_party/raganything-1.3.1/tests/
+third_party/lightrag_hku-1.5.0/tests/

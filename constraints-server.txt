@@ -1,0 +1,10 @@
+dbt-adapters==1.16.3
+dbt-common==1.27.1
+dbt-semantic-interfaces==0.5.1
+dbt-protos==1.0.514
+protobuf==5.29.6
+mashumaro==3.14
+deepdiff==7.0.1
+importlib-metadata==6.11.0
+requests==2.32.5
+huggingface_hub==0.24.7
