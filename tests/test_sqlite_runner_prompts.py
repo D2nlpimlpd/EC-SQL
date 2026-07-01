@@ -9,6 +9,7 @@ from scripts.run_spider2_sqlite_experiment import (
     deterministic_alias_column_repair,
     deterministic_semantic_guard_repair,
     prompt_for_system,
+    row_signature,
     select_sqlite_rows,
     semantic_guard_errors,
     synthesize_batting_metric_toppers_sql,
@@ -33,6 +34,14 @@ def fetchall_sqlite(db_path: Path, sql: str) -> list[tuple]:
 
 
 class SQLiteRunnerPromptTests(unittest.TestCase):
+    def test_row_signature_sorts_mixed_null_and_text_rows(self) -> None:
+        rows = [(None, "b"), ("a", None), (1, "c")]
+
+        signature = row_signature(rows)
+
+        self.assertEqual(sorted(signature, key=lambda row: tuple(repr(value) for value in row)), list(signature))
+        self.assertEqual(row_signature(reversed(rows)), signature)
+
     def test_select_sqlite_rows_supports_gold_offset(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

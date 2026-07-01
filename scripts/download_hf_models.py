@@ -9,11 +9,8 @@ from typing import Iterable
 
 
 DEFAULT_HF_MODELS = (
-    "Qwen/Qwen3-32B,"
-    "Qwen/Qwen2.5-Coder-32B-Instruct,"
-    "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct,"
-    "bigcode/starcoder2-15b-instruct-v0.1,"
-    "NumbersStation/nsql-6B"
+    "NumbersStation/nsql-6B,"
+    "deepseek-ai/deepseek-coder-6.7b-instruct"
 )
 
 DEFAULT_IGNORE_PATTERNS = [

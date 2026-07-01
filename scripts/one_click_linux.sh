@@ -53,8 +53,8 @@ Useful environment variables:
   RUN_ID=my_server_run
   SKIP_EXISTING=1
   BOYUESQL_MODELS=qwen3-vl:8b
-  BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b
-  HF_BASELINE_MODELS=Qwen/Qwen3-32B,Qwen/Qwen2.5-Coder-32B-Instruct,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct,bigcode/starcoder2-15b-instruct-v0.1,NumbersStation/nsql-6B
+  BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b
+  HF_BASELINE_MODELS=NumbersStation/nsql-6B,deepseek-ai/deepseek-coder-6.7b-instruct
   HF_EXTRA_MODELS=
   HF_HOME=/data/huggingface
   HF_SKIP_DOWNLOAD=0
@@ -74,7 +74,7 @@ run_preflight() {
     --min-free-gb "${PREFLIGHT_MIN_FREE_GB:-5}"
     --ollama-base-url "${OLLAMA_BASE_URL:-http://localhost:11434}"
     --model "${BOYUESQL_MODELS:-${BOYUESQL_MODEL:-qwen3-vl:8b}}"
-    --model "${BASELINE_MODELS:-${BASELINE_MODEL:-qwen2.5-coder:7b},sqlcoder:7b,qwen3:32b}"
+    --model "${BASELINE_MODELS:-${BASELINE_MODEL:-qwen2.5-coder:7b},sqlcoder:7b}"
   )
   if [ "${PREFLIGHT_REQUIRE_DATASET:-0}" = "1" ]; then
     preflight_args+=(--require-dataset)
@@ -148,7 +148,7 @@ run_models() {
   "${PYTHON_BOOTSTRAP}" "${PROJECT_ROOT}/scripts/pull_ollama_models.py" \
     --base-url "${OLLAMA_BASE_URL:-http://localhost:11434}" \
     --model "${BOYUESQL_MODELS:-${BOYUESQL_MODEL:-qwen3-vl:8b}}" \
-    --model "${BASELINE_MODELS:-${BASELINE_MODEL:-qwen2.5-coder:7b},sqlcoder:7b,qwen3:32b}" \
+    --model "${BASELINE_MODELS:-${BASELINE_MODEL:-qwen2.5-coder:7b},sqlcoder:7b}" \
     --timeout "${OLLAMA_PULL_TIMEOUT:-1800}"
   if [ "${HF_SKIP_DOWNLOAD:-0}" = "1" ]; then
     echo "[one-click] HF_SKIP_DOWNLOAD=1, skipping HuggingFace snapshot downloads"
@@ -157,7 +157,7 @@ run_models() {
   echo "[one-click] downloading HuggingFace model snapshots"
   hf_args=(
     "${PROJECT_ROOT}/scripts/download_hf_models.py"
-    --model "${HF_BASELINE_MODELS:-Qwen/Qwen3-32B,Qwen/Qwen2.5-Coder-32B-Instruct,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct,bigcode/starcoder2-15b-instruct-v0.1,NumbersStation/nsql-6B}"
+    --model "${HF_BASELINE_MODELS:-NumbersStation/nsql-6B,deepseek-ai/deepseek-coder-6.7b-instruct}"
   )
   if [ -n "${HF_EXTRA_MODELS:-}" ]; then
     hf_args+=(--model "${HF_EXTRA_MODELS}")

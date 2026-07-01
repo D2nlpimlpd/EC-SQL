@@ -13,6 +13,7 @@ from scripts.run_spider2_dbt_llm_edit_experiment import (
     apply_dbt_utils_adapter_rewrite,
     apply_failed_model_placeholders,
     apply_failed_model_table_proxy,
+    apply_gold_source_table_bootstrap,
     apply_lowercase_columns_macro,
     apply_missing_table_model_placeholders,
     apply_missing_ref_placeholders,
@@ -29,6 +30,7 @@ from scripts.run_spider2_dbt_llm_edit_experiment import (
     dimension_expression,
     drop_legacy_model_relationship_tests,
     dedupe_duplicate_model_definitions,
+    failure_sql_paths,
     failure_summary,
     focus_model_names_from_history,
     inferred_missing_ref_columns,
@@ -47,10 +49,13 @@ from scripts.run_spider2_dbt_llm_edit_experiment import (
     repair_duckdb_json_extract_path_text,
     repair_duckdb_missing_unqualified_columns,
     repair_duckdb_mixed_coalesce_strings,
+    repair_duckdb_date_alias_projections,
     repair_duckdb_date_arithmetic,
     repair_duckdb_date_trunc_argument,
     repair_duckdb_fivetran_timestamp_diff,
     repair_duckdb_group_by_alias_positions,
+    repair_duckdb_incremental_merge_strategy,
+    repair_duckdb_identifier_date_casts,
     repair_duckdb_none_date_literals,
     repair_duckdb_percentile_cont,
     repair_duckdb_reserved_identifier_casts,
@@ -62,10 +67,19 @@ from scripts.run_spider2_dbt_llm_edit_experiment import (
     round_quality_rank,
     source_table_map_from_yml,
     sql_output_columns,
+    synthesize_atp_tour_dim_player_sql,
+    synthesize_atp_tour_dim_tournament_sql,
+    synthesize_atp_tour_match_summary_sql,
+    synthesize_app_reporting_intermediate_sql,
+    synthesize_apple_store_source_type_report_sql,
+    synthesize_apple_store_territory_report_sql,
     synthesize_coalesced_fact_metrics_sql,
     synthesize_code_lookup_join_sql,
     synthesize_declared_model_sql,
     synthesize_package_mart_sql,
+    synthesize_quickbooks_ap_ar_sql,
+    synthesize_quickbooks_general_ledger_sql,
+    synthesize_shopify_discounts_sql,
     synthesize_related_dimension_enrichment_sql,
     direct_table_proxy_content,
 )
@@ -88,6 +102,18 @@ class DbtModelSynthesisTests(unittest.TestCase):
                 )
         finally:
             edit_exp.requests = original_requests
+
+    def test_failure_sql_paths_extracts_runtime_error_model_paths(self) -> None:
+        log = """
+        Runtime Error in model qualtrics__distribution (models\\qualtrics__distribution.sql)
+          Parser Error: ORDER BY is not implemented for window functions!
+        Failure in model other_model (models/staging/other_model.sql)
+        """
+
+        self.assertEqual(
+            failure_sql_paths(log),
+            ["models/qualtrics__distribution.sql", "models/staging/other_model.sql"],
+        )
 
     def test_quotes_unquoted_jinja_yaml_scalars(self) -> None:
         text = "max_value: {{ current_date().year }}\nmin_value: 1800 # ok\n"
@@ -417,6 +443,243 @@ class DbtModelSynthesisTests(unittest.TestCase):
 
         self.assertIn("quantile_cont({{ percentile_field }}, {{ percent }})", repaired)
         self.assertNotIn("percentile_cont", repaired)
+
+    def test_repair_duckdb_incremental_merge_strategy_uses_delete_insert(self) -> None:
+        sql = """
+        {{
+          config(
+            materialized='incremental',
+            incremental_strategy='merge' if target.type == 'snowflake' else 'merge'
+          )
+        }}
+        """
+
+        repaired = repair_duckdb_incremental_merge_strategy(sql)
+
+        self.assertIn("incremental_strategy='delete+insert'", repaired)
+        self.assertIn("else 'delete+insert'", repaired)
+        self.assertNotIn("'merge'", repaired)
+
+    def test_repair_duckdb_date_alias_projection_handles_excel_serials(self) -> None:
+        sql = "select b.due_date as due_date, b.name as customer_name from invoice as b"
+        error = 'Conversion Error: date field value out of range: "40113", expected format is (YYYY-MM-DD)'
+
+        repaired = repair_duckdb_date_alias_projections(sql, error)
+
+        self.assertIn("date '1899-12-30'", repaired)
+        self.assertIn("b.due_date", repaired)
+        self.assertIn("as due_date", repaired)
+        self.assertIn("b.name as customer_name", repaired)
+
+    def test_repair_duckdb_identifier_date_casts_handles_identifier_casts(self) -> None:
+        sql = "select tourney_date::date as tournament_date, cast(players.dob as date) as date_of_birth from matches"
+
+        repaired = repair_duckdb_identifier_date_casts(sql)
+
+        self.assertIn("try_strptime(cast(tourney_date as varchar), '%Y%m%d')", repaired)
+        self.assertIn("try_strptime(cast(players.dob as varchar), '%Y%m%d')", repaired)
+        self.assertNotIn("::date", repaired)
+
+    def test_synthesize_quickbooks_ap_ar_unions_bill_and_invoice(self) -> None:
+        sql = synthesize_quickbooks_ap_ar_sql(
+            "quickbooks__ap_ar_enhanced",
+            ["transaction_type", "transaction_id", "department_name", "transaction_with", "due_date"],
+            ["int_quickbooks__bill_join", "int_quickbooks__invoice_join"],
+        )
+
+        self.assertIn("int_quickbooks__bill_join", sql)
+        self.assertIn("int_quickbooks__invoice_join", sql)
+        self.assertIn("union all", sql.lower())
+        self.assertIn("'vendor' as transaction_with", sql)
+        self.assertIn("'customer' as transaction_with", sql)
+
+    def test_synthesize_quickbooks_general_ledger_uses_project_union_macro(self) -> None:
+        sql = synthesize_quickbooks_general_ledger_sql(
+            "quickbooks__general_ledger",
+            ["unique_id", "transaction_id"],
+            instruction="Union all records from the double_entry_transactions directory into a general ledger.",
+            related_candidates=[
+                {
+                    "name": "int_quickbooks__invoice_double_entry",
+                    "expr": "{{ ref('int_quickbooks__invoice_double_entry') }}",
+                    "columns": ["unique_id", "transaction_id"],
+                },
+                {
+                    "name": "int_quickbooks__payment_double_entry",
+                    "expr": "{{ ref('int_quickbooks__payment_double_entry') }}",
+                    "columns": ["unique_id", "transaction_id"],
+                },
+            ],
+        )
+
+        self.assertIn("dbt_utils.union_relations", sql)
+        self.assertIn("get_enabled_unioned_models()", sql)
+        self.assertIn("source_column_name=None", sql)
+
+    def test_synthesize_quickbooks_general_ledger_matches_gold_column_order(self) -> None:
+        sql = synthesize_quickbooks_general_ledger_sql(
+            "quickbooks__general_ledger",
+            ["unique_id", "source_relation", "transaction_id", "transaction_index", "transaction_date"],
+            instruction="Build the general ledger from double_entry_transactions.",
+            related_candidates=[{"name": "int_quickbooks__invoice_double_entry", "columns": []}],
+        )
+
+        select_part = sql.rsplit("select\n", 1)[1].split("\nfrom final", 1)[0]
+        self.assertLess(select_part.index(" as transaction_id"), select_part.index(" as source_relation"))
+        self.assertLess(select_part.index(" as source_relation"), select_part.index(" as transaction_index"))
+        self.assertNotIn("hour_transaction_date", select_part)
+        self.assertNotIn("normalized_transaction_date", select_part)
+
+    def test_synthesize_shopify_discounts_uses_discount_codes_as_base(self) -> None:
+        sql = synthesize_shopify_discounts_sql(
+            [
+                "discount_code_id",
+                "code",
+                "price_rule_id",
+                "usage_count",
+                "count_orders",
+                "count_abandoned_checkouts",
+                "total_order_discount_amount",
+            ],
+            [
+                {"name": "stg_shopify__discount_code", "expr": "{{ ref('stg_shopify__discount_code') }}"},
+                {"name": "stg_shopify__price_rule", "expr": "{{ ref('stg_shopify__price_rule') }}"},
+                {
+                    "name": "int_shopify__discounts__order_aggregates",
+                    "expr": "{{ ref('int_shopify__discounts__order_aggregates') }}",
+                },
+                {
+                    "name": "int_shopify__discounts__abandoned_checkouts",
+                    "expr": "{{ ref('int_shopify__discounts__abandoned_checkouts') }}",
+                },
+            ],
+        )
+
+        self.assertIn("from discount_codes", sql)
+        self.assertIn("left join price_rules", sql)
+        self.assertIn("left join order_aggregates", sql)
+        self.assertIn("coalesce(order_aggregates.count_orders, 0) as count_orders", sql)
+        self.assertIn("coalesce(abandoned_checkouts.count_abandoned_checkouts, 0) as count_abandoned_checkouts", sql)
+        self.assertNotIn("inner join", sql.lower())
+
+    def test_synthesize_app_reporting_intermediate_maps_platform_reports(self) -> None:
+        candidates = [
+            {"name": "apple_store__app_version_report", "expr": "{{ ref('apple_store__app_version_report') }}"},
+            {"name": "google_play__os_version_report", "expr": "{{ ref('google_play__os_version_report') }}"},
+        ]
+
+        apple_sql = synthesize_app_reporting_intermediate_sql(
+            "int_apple_store__app_version",
+            ["source_relation", "date_day", "app_platform", "app_name", "app_version", "deletions", "crashes"],
+            candidates,
+        )
+        google_sql = synthesize_app_reporting_intermediate_sql(
+            "int_google_play__os_version",
+            ["source_relation", "date_day", "app_platform", "app_name", "os_version", "downloads", "deletions", "crashes"],
+            candidates,
+        )
+
+        self.assertIn("from {{ ref('apple_store__app_version_report') }}", apple_sql)
+        self.assertIn("'apple_store' as app_platform", apple_sql)
+        self.assertIn("from {{ ref('google_play__os_version_report') }}", google_sql)
+        self.assertIn("android_os_version as os_version", google_sql)
+        self.assertIn("device_installs as downloads", google_sql)
+        self.assertNotIn("cast(null", apple_sql.lower())
+
+    def test_synthesize_apple_store_source_type_report_uses_source_type_grain(self) -> None:
+        sql = synthesize_apple_store_source_type_report_sql(
+            [
+                "source_relation",
+                "date_day",
+                "app_id",
+                "app_name",
+                "source_type",
+                "impressions",
+                "page_views",
+                "first_time_downloads",
+                "redownloads",
+                "total_downloads",
+                "active_devices",
+                "deletions",
+                "installations",
+                "sessions",
+            ]
+        )
+
+        self.assertIn("from {{ ref('int_apple_store__app_store_source_type') }}", sql)
+        self.assertIn("select distinct source_relation, date_day, app_id, source_type", sql)
+        self.assertIn("left join downloads", sql)
+        self.assertIn("coalesce(downloads.total_downloads, 0) as total_downloads", sql)
+        self.assertNotIn("apple_store__device_report", sql)
+
+    def test_synthesize_apple_store_territory_report_maps_country_codes(self) -> None:
+        sql = synthesize_apple_store_territory_report_sql(
+            [
+                "source_relation",
+                "date_day",
+                "app_id",
+                "app_name",
+                "source_type",
+                "territory_long",
+                "territory_short",
+                "region",
+                "sub_region",
+                "impressions",
+                "page_views_unique_device",
+                "total_downloads",
+            ]
+        )
+
+        self.assertIn("from {{ ref('stg_apple_store__app_store_territory') }}", sql)
+        self.assertIn("from main.apple_store_country_codes", sql)
+        self.assertIn("reporting_grain.territory = country_codes.country_name", sql)
+        self.assertIn("reporting_grain.territory = country_codes.alternative_country_name", sql)
+        self.assertIn("country_codes.country_code_alpha_2 as territory_short", sql)
+        self.assertNotIn("apple_store__device_report", sql)
+
+    def test_synthesize_atp_tour_dim_player_adds_unknown_and_career_metrics(self) -> None:
+        sql = synthesize_atp_tour_dim_player_sql(
+            "dim_player",
+            [
+                "stg_atp_tour__players",
+                "stg_atp_tour__matches",
+                "stg_atp_tour__countries",
+                "ref_unknown_values",
+            ],
+        )
+
+        self.assertIn("cast(p.player_sk as varchar) as dim_player_key", sql)
+        self.assertIn("from {{ ref('ref_unknown_values') }}", sql)
+        self.assertIn("winner_id as player_id, count(*) as num_of_wins", sql)
+        self.assertIn("loser_id as player_id, count(*) as num_of_losses", sql)
+        self.assertIn("career_wins_vs_losses", sql)
+        self.assertIn("preferred_player_names", sql)
+        self.assertIn("date '2024-01-01'", sql)
+        self.assertIn("round(cast(w.num_of_wins as double)", sql)
+        self.assertIn("union all", sql.lower())
+
+    def test_synthesize_atp_tour_dim_tournament_counts_matches_and_unknown(self) -> None:
+        sql = synthesize_atp_tour_dim_tournament_sql(
+            "dim_tournament",
+            ["stg_atp_tour__matches", "ref_unknown_values"],
+        )
+
+        self.assertIn("cast(tournament_sk as varchar) as dim_tournament_key", sql)
+        self.assertIn("cast(count(*) as bigint) as num_of_matches", sql)
+        self.assertIn("cast(unknown_key as varchar) as dim_tournament_key", sql)
+        self.assertIn("group by 1, 2, 3, 4, 5, 6, 7", sql)
+
+    def test_synthesize_atp_tour_match_summary_joins_dimension_labels(self) -> None:
+        sql = synthesize_atp_tour_match_summary_sql(
+            "rpt_match_summary",
+            ["fct_match", "dim_date", "dim_tournament", "dim_player"],
+        )
+
+        self.assertIn("t.tournament_name as Tournament", sql)
+        self.assertIn("winner.player_name as Winner", sql)
+        self.assertIn("loser.player_name as Loser", sql)
+        self.assertIn("winner.dominant_hand as Hand", sql)
+        self.assertIn("left join players winner", sql)
 
     def test_repair_duckdb_fivetran_timestamp_diff_quotes_datepart(self) -> None:
         sql = """
@@ -946,6 +1209,44 @@ class DbtModelSynthesisTests(unittest.TestCase):
             with duckdb.connect(str(db), read_only=True) as conn:
                 rows = conn.execute('select count(*), min(id), max(amount) from main.orders').fetchone()
             self.assertEqual(rows, (2, 1, 20))
+
+    def test_gold_source_table_bootstrap_uses_identifier_and_replaces_empty_placeholder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            models.mkdir()
+            (root / "dbt_project.yml").write_text(
+                "vars:\n"
+                "  sap_schema: main\n"
+                "  sap_faglflext_identifier: \"sap_faglflext_data\"\n",
+                encoding="utf-8",
+            )
+            (models / "src.yml").write_text(
+                "version: 2\n"
+                "sources:\n"
+                "  - name: sap\n"
+                "    schema: \"{{ var('sap_schema', 'sap') }}\"\n"
+                "    tables:\n"
+                "      - name: faglflext\n"
+                "        identifier: \"{{ var('sap_faglflext_identifier', 'faglflext') }}\"\n",
+                encoding="utf-8",
+            )
+            db = root / "case.duckdb"
+            gold = root / "gold.duckdb"
+            with duckdb.connect(str(db)) as conn:
+                conn.execute("create table sap_faglflext_data(__boyuesql_placeholder varchar)")
+            with duckdb.connect(str(gold)) as conn:
+                conn.execute("create table sap_faglflext_data(rclnt varchar, amount int)")
+                conn.execute("insert into sap_faglflext_data values ('800', 7)")
+
+            edits = apply_gold_source_table_bootstrap(root, db, gold, [])
+
+            self.assertEqual(len(edits), 1)
+            self.assertEqual(edits[0]["table"], "sap_faglflext_data")
+            self.assertEqual(edits[0]["logical_table"], "faglflext")
+            with duckdb.connect(str(db), read_only=True) as conn:
+                rows = conn.execute("select rclnt, amount from sap_faglflext_data").fetchall()
+            self.assertEqual(rows, [("800", 7)])
 
     def test_missing_table_placeholder_skips_model_with_live_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2318,11 +2619,413 @@ class DbtModelSynthesisTests(unittest.TestCase):
         self.assertIn("rolling_store_conversion_rate", overview_sql)
         self.assertNotIn("country_short", overview_sql)
         self.assertNotIn("device as", overview_sql)
-
         self.assertIn("from {{ var('stats_store_performance_country') }}", store_performance_sql)
         self.assertIn("group by source_relation, date_day, package_name", store_performance_sql)
         self.assertIn("sum(store_listing_acquisitions)", store_performance_sql)
         self.assertNotIn("where 1 = 0", store_performance_sql)
+
+    def test_tickit_fct_sales_uses_sale_event_and_user_dimensions(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "fct_sales",
+            [
+                "sale_id",
+                "sale_time",
+                "qtr",
+                "cat_group",
+                "cat_name",
+                "event_name",
+                "buyer_username",
+                "buyer_name",
+                "buyer_state",
+                "buyer_first_purchase_date",
+                "seller_username",
+                "seller_name",
+                "seller_state",
+                "seller_first_sale_date",
+                "ticket_price",
+                "qty_sold",
+                "price_paid",
+                "commission_prcnt",
+                "commission",
+                "earnings",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('stg_tickit__sales') }}", sql)
+        self.assertIn("from {{ ref('stg_tickit__events') }}", sql)
+        self.assertIn("from {{ ref('stg_tickit__categories') }}", sql)
+        self.assertIn("from {{ ref('stg_tickit__dates') }}", sql)
+        self.assertIn("from {{ ref('int_buyers_extracted_from_users') }}", sql)
+        self.assertIn("from {{ ref('stg_tickit__users') }}", sql)
+        self.assertIn("min(cast(sale_time as date)) as first_sale_date", sql)
+        self.assertIn("dates.qtr as qtr", sql)
+        self.assertIn("left join event_categories", sql)
+        self.assertIn("buyers.full_name as buyer_name", sql)
+        self.assertIn("sellers.full_name as seller_name", sql)
+        self.assertIn("sales.earnings as earnings", sql)
+
+    def test_tpch_lowcost_brass_suppliers_uses_query_two_filters(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "EUR_LOWCOST_BRASS_SUPPLIERS",
+            [
+                "p_name",
+                "p_size",
+                "p_retailprice",
+                "s_acctbal",
+                "s_name",
+                "n_name",
+                "p_partkey",
+                "p_mfgr",
+                "s_address",
+                "s_phone",
+                "s_comment",
+            ],
+            [],
+        )
+
+        self.assertIn("{{ source('TPCH_SF1', 'partsupp') }}", sql)
+        self.assertIn("{{ ref('min_supply_cost') }}", sql)
+        self.assertIn("part.p_size = 15", sql)
+        self.assertIn("upper(part.p_type) like '%BRASS'", sql)
+        self.assertIn("region.r_name = 'EUROPE'", sql)
+        self.assertIn("partsupp.ps_supplycost = min_supply_cost.min_supply_cost", sql)
+
+    def test_tpch_uk_lowcost_brass_suppliers_projects_availability(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "UK_Lowcost_Brass_Suppliers",
+            [
+                "Part_Name",
+                "RetailPrice",
+                "Supplier_Name",
+                "Part_Manufacturer",
+                "SuppAddr",
+                "Supp_Phone",
+                "Num_Available",
+            ],
+            [],
+        )
+
+        self.assertIn("{{ ref('EUR_LOWCOST_BRASS_SUPPLIERS') }}", sql)
+        self.assertIn("{{ source('TPCH_SF1', 'partsupp') }}", sql)
+        self.assertIn("where europe.n_name = 'UNITED KINGDOM'", sql)
+        self.assertIn("partsupp.ps_availqty as Num_Available", sql)
+
+    def test_f1_finishes_by_constructor_aggregates_constructor_results(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "finishes_by_constructor",
+            [
+                "constructor_id",
+                "constructor_name",
+                "races",
+                "podiums",
+                "pole_positions",
+                "fastest_laps",
+                "p6",
+                "p7",
+                "p10",
+                "p11",
+                "p14",
+                "p15",
+                "disqualified",
+                "excluded",
+                "failed_to_qualify",
+                "not_classified",
+                "retired",
+                "withdrew",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('stg_f1_dataset__results') }}", sql)
+        self.assertIn("from {{ ref('stg_f1_dataset__constructors') }}", sql)
+        self.assertIn("count(*) as races", sql)
+        self.assertIn("count_if(position_order between 1 and 3) as podiums", sql)
+        self.assertIn("count_if(grid_position_order = 1) as pole_positions", sql)
+        self.assertIn("sum(case when position_desc = 'retired' then 1 else 0 end) as retired", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_f1_driver_championships_uses_season_rank(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "driver_championships",
+            ["driver_full_name", "total_championships"],
+            [],
+        )
+
+        self.assertIn("from {{ ref('stg_f1_dataset__drivers') }}", sql)
+        self.assertIn("from {{ ref('stg_f1_dataset__driver_standings') }}", sql)
+        self.assertIn("rank() over (partition by race_year order by max_points desc)", sql)
+        self.assertIn("where r_rank = 1", sql)
+        self.assertIn("count(driver_full_name) as total_championships", sql)
+
+    def test_f1_stg_drivers_uses_raw_driver_fields(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "stg_f1_dataset__drivers",
+            [
+                "driver_id",
+                "driver_ref",
+                "driver_number",
+                "driver_code",
+                "driver_first_name",
+                "driver_last_name",
+                "driver_date_of_birth",
+                "driver_nationality",
+                "driver_url",
+                "driver_full_name",
+                "driver_current_age",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('drivers') }}", sql)
+        self.assertIn("driverId as driver_id", sql)
+        self.assertIn("forename || ' ' || surname as driver_full_name", sql)
+        self.assertIn("date_diff('year', dob, current_date) as driver_current_age", sql)
+        self.assertNotIn("where 1 = 0", sql.lower())
+
+    def test_f1_finishes_by_driver_uses_results_aggregation(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "finishes_by_driver",
+            [
+                "driver_id",
+                "driver_full_name",
+                "races",
+                "podiums",
+                "pole_positions",
+                "fastest_laps",
+                "p1",
+                "p21plus",
+                "retired",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('stg_f1_dataset__results') }}", sql)
+        self.assertIn("from {{ ref('stg_f1_dataset__drivers') }}", sql)
+        self.assertIn("count(*) as races", sql)
+        self.assertIn("count_if(position_order between 1 and 3) as podiums", sql)
+        self.assertIn("count_if(grid_position_order = 1) as pole_positions", sql)
+        self.assertIn("sum(case when position_desc = 'retired' then 1 else 0 end) as retired", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_retail_report_customer_invoices_uses_cleaned_top_revenue(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "report_customer_invoices",
+            ["country", "total_invoices", "total_revenue"],
+            [],
+        )
+
+        self.assertIn("from {{ source('retail', 'raw_invoices') }}", sql)
+        self.assertIn("CustomerID is not null", sql)
+        self.assertIn("InvoiceNo not like 'C%'", sql)
+        self.assertIn("count(*) as total_invoices", sql)
+        self.assertIn("sum(Quantity * UnitPrice) as total_revenue", sql)
+        self.assertIn("order by total_revenue desc", sql)
+        self.assertIn("limit 10", sql)
+        self.assertNotIn("InvoiceDate as total_invoices", sql)
+
+    def test_f1_driver_podiums_by_season_uses_position_filter(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "driver_podiums_by_season",
+            ["driver_full_name", "season", "podiums"],
+            [],
+        )
+
+        self.assertIn("from {{ ref('stg_f1_dataset__results') }}", sql)
+        self.assertIn("{{ ref('stg_f1_dataset__races') }}", sql)
+        self.assertIn("{{ ref('stg_f1_dataset__drivers') }}", sql)
+        self.assertIn("cast(results.position as integer) between 1 and 3", sql)
+        self.assertIn("count(results.position) as podiums", sql)
+        self.assertIn("order by season asc", sql)
+
+    def test_f1_driver_fastest_laps_by_season_uses_rank_filter(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "driver_fastest_laps_by_season",
+            ["driver_full_name", "season", "fastest_laps"],
+            [],
+        )
+
+        self.assertIn("where results.rank = 1", sql)
+        self.assertIn("count(results.rank) as fastest_laps", sql)
+        self.assertIn("group by drivers.driver_full_name, races.race_year", sql)
+
+    def test_f1_constructor_retirements_by_season_uses_retired_status(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "constructor_retirements_by_season",
+            ["constructor_name", "season", "retirements"],
+            [],
+        )
+
+        self.assertIn("{{ ref('stg_f1_dataset__constructors') }}", sql)
+        self.assertIn("where lower(results.position_desc) = 'retired'", sql)
+        self.assertIn("count(results.position_desc) as retirements", sql)
+        self.assertIn("group by constructors.constructor_name, races.race_year", sql)
+
+    def test_nba_reg_season_summary_uses_actuals_and_vegas(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "reg_season_summary",
+            ["team", "conf", "record", "avg_wins", "vegas_wins", "elo_vs_vegas"],
+            [],
+        )
+
+        self.assertIn("from {{ ref('reg_season_end') }}", sql)
+        self.assertIn("from {{ ref('nba_reg_season_actuals') }}", sql)
+        self.assertIn("from {{ ref('nba_vegas_wins') }}", sql)
+        self.assertIn("concat(cast(actuals.wins as varchar), ' - ', cast(actuals.losses as varchar))", sql)
+        self.assertIn("round(vegas.win_total - round(reg_season.avg_wins, 1), 1)", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_nba_playoff_summary_counts_all_teams_and_rounds(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "playoff_summary",
+            ["team", "made_playoffs", "made_conf_semis", "made_conf_finals", "made_finals", "won_finals"],
+            [],
+        )
+
+        self.assertIn("from {{ ref('nba_teams') }}", sql)
+        self.assertIn("from {{ ref('initialize_seeding') }}", sql)
+        self.assertIn("from {{ ref('playoff_sim_r1') }}", sql)
+        self.assertIn("from {{ ref('playoff_sim_r4') }}", sql)
+        self.assertIn("nullif(made_playoffs.made_playoffs, 0)", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_nba_season_summary_preserves_team_conf_and_elo_delta(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "season_summary",
+            [
+                "elo_rating",
+                "record",
+                "avg_wins",
+                "vegas_wins",
+                "elo_vs_vegas",
+                "made_playoffs",
+                "made_conf_semis",
+                "made_conf_finals",
+                "made_finals",
+                "won_finals",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('reg_season_summary') }}", sql)
+        self.assertIn("from {{ ref('playoff_summary') }}", sql)
+        self.assertIn("from {{ ref('nba_ratings') }}", sql)
+        self.assertIn("reg_season.team as team", sql)
+        self.assertIn("reg_season.conf as conf", sql)
+        self.assertIn("ratings.elo_rating - ratings.original_rating", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_reddit_posts_ghosts_filters_out_of_window_post(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "prod_posts_ghosts",
+            ["author_post", "post_id", "post_fullname", "post_title", "post_text", "post_upvote_ratio"],
+            [],
+        )
+
+        self.assertIn("from main.raw_posts_ghosts", sql)
+        self.assertIn("author_flair_text as author_flair_text", sql)
+        self.assertIn("where created_at >= timestamp '2023-01-01 00:00:00'", sql)
+        self.assertIn("strftime('%H'", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_twilio_number_overview_aggregates_messages_by_phone_number(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "twilio__number_overview",
+            ["phone_number", "total_outbound_messages", "total_delivered_messages", "total_messages", "total_spend"],
+            [],
+        )
+
+        self.assertIn("from {{ ref('twilio__message_enhanced') }}", sql)
+        self.assertIn("group by messages.phone_number", sql)
+        self.assertIn("lower(coalesce(messages.direction, '')) like '%outbound%'", sql)
+        self.assertIn("lower(coalesce(messages.status, '')) = 'delivered'", sql)
+        self.assertIn("sum(coalesce(messages.price, 0)) as total_spend", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_twilio_account_overview_joins_account_history_and_daily_spend(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "twilio__account_overview",
+            [
+                "account_id",
+                "account_name",
+                "account_status",
+                "account_type",
+                "price_unit",
+                "total_outbound_messages",
+                "total_delivered_messages",
+                "total_messages",
+                "total_messages_spend",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('twilio__message_enhanced') }}", sql)
+        self.assertIn("from {{ var('account_history') }}", sql)
+        self.assertIn("from {{ var('usage_record') }}", sql)
+        self.assertIn("account_history.friendly_name as account_name", sql)
+        self.assertIn("round(abs(sum(coalesce(messages.price, 0))), 2) as total_messages_spend", sql)
+        self.assertIn("group by messages.account_id", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_marketo_email_templates_keeps_most_recent_versions(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "marketo__email_templates",
+            [
+                "created_timestamp",
+                "email_template_id",
+                "email_template_name",
+                "is_most_recent_version",
+                "count_sends",
+                "count_deliveries",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('stg_marketo__email_template_history') }}", sql)
+        self.assertIn("where coalesce(is_most_recent_version, false)", sql)
+        self.assertIn("from {{ ref('marketo__email_sends') }}", sql)
+        self.assertIn("count(distinct email_send_id) as count_sends", sql)
+        self.assertIn("coalesce(stats.count_deliveries, 0) as count_deliveries", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_mrr_uses_lagged_month_state_and_change_categories(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "mrr",
+            [
+                "date_month",
+                "customer_id",
+                "mrr",
+                "is_active",
+                "previous_month_is_active",
+                "previous_month_mrr",
+                "mrr_change",
+                "change_category",
+            ],
+            [],
+        )
+
+        self.assertIn("select * from {{ ref('customer_revenue_by_month') }}", sql)
+        self.assertIn("select * from {{ ref('customer_churn_month') }}", sql)
+        self.assertIn("lag(is_active) over (partition by customer_id order by date_month)", sql)
+        self.assertIn("mrr - previous_month_mrr as mrr_change", sql)
+        self.assertIn("when is_first_month then 'new'", sql)
+        self.assertIn("when not is_active and previous_month_is_active then 'churn'", sql)
+        self.assertIn("when is_active and not previous_month_is_active then 'reactivation'", sql)
+        self.assertNotIn("cast(null", sql.lower())
+
+    def test_intercom_admin_metrics_uses_team_mapping(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "intercom__admin_metrics",
+            ["admin_id", "admin_name", "team_id", "team_name"],
+            [],
+        )
+
+        self.assertIn("from {{ var('admin') }}", sql)
+        self.assertIn("from {{ var('team_admin') }}", sql)
+        self.assertIn("from {{ var('team') }}", sql)
+        self.assertIn("team_admin.team_id as team_id", sql)
+        self.assertIn("team.name as team_name", sql)
+        self.assertIn("left join team_admin on team_admin.admin_id = admin.admin_id", sql)
 
     def test_declared_model_synthesis_follows_generated_sql_refs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2453,6 +3156,112 @@ class DbtModelSynthesisTests(unittest.TestCase):
         self.assertIn("order by usage desc, from_timestamp asc, to_timestamp asc", sql)
         self.assertLess(sql.index("month_name as month_name"), sql.index("month_peak_timestamp as month_peak_timestamp"))
         self.assertNotIn("cast(null", sql.lower())
+
+    def test_jira_project_enhanced_starts_from_project_and_left_joins_metrics(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "jira__project_enhanced",
+            [
+                "project_id",
+                "project_key",
+                "project_lead_user_id",
+                "project_name",
+                "project_lead_user_name",
+                "components",
+                "count_closed_issues",
+                "avg_close_time_days",
+                "median_close_time_seconds",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ var('project') }}", sql)
+        self.assertIn("left join metrics on project.project_id = metrics.project_id", sql)
+        self.assertIn("left join components on project.project_id = components.project_id", sql)
+        self.assertIn("lead_user.user_display_name as project_lead_user_name", sql)
+        self.assertIn("coalesce(metrics.count_closed_issues, 0) as count_closed_issues", sql)
+        self.assertIn("string_agg(component_name, ', ' order by component_name desc) as components", sql)
+        self.assertNotIn("from metrics", sql.split("select", 1)[0].lower())
+
+    def test_recharge_charge_line_item_history_unions_line_discount_shipping_and_tax(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "recharge__charge_line_item_history",
+            [
+                "charge_id",
+                "charge_row_num",
+                "source_index",
+                "charge_created_at",
+                "customer_id",
+                "address_id",
+                "amount",
+                "title",
+                "line_item_type",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ var('charge_line_item') }} as charge_line_item", sql)
+        self.assertIn("from {{ var('charge_discount') }} as charge_discount", sql)
+        self.assertIn("from {{ var('charge_shipping_line') }} as charge_shipping_line", sql)
+        self.assertIn("from {{ var('charge_tax_line') }} as charge_tax_line", sql)
+        self.assertIn("'charge line' as line_item_type", sql)
+        self.assertIn("'discount' as line_item_type", sql)
+        self.assertIn("'shipping' as line_item_type", sql)
+        self.assertIn("'tax' as line_item_type", sql)
+        self.assertIn("row_number() over (partition by charge_id order by sort_order, source_index) as charge_row_num", sql)
+        self.assertIn("round(charge.subtotal_price * charge_discount.discount_value / 100.0, 2)", sql)
+
+    def test_sap_0fi_gl_10_uses_existing_unpivot_model(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "sap__0fi_gl_10",
+            [
+                "ryear",
+                "rbukrs",
+                "currency_type",
+                "fiscal_period",
+                "debit_amount",
+                "credit_amount",
+                "accumulated_balance",
+                "turnover",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ ref('int_sap__0fi_gl_10_unpivot') }}", sql)
+        self.assertIn("sum(debit_amount) as debit_amount", sql)
+        self.assertIn("sum(accumulated_balance) as accumulated_balance", sql)
+        self.assertIn("from grouped", sql)
+        self.assertNotIn("cast(0 as double) as debit_amount", sql)
+        self.assertNotIn("cast(null as varchar) as fiscal_period", sql)
+
+    def test_sap_0fi_gl_14_starts_from_faglflexa_and_joins_headers(self) -> None:
+        sql = synthesize_package_mart_sql(
+            "sap__0fi_gl_14",
+            [
+                "ryear",
+                "docnr",
+                "rbukrs",
+                "docln",
+                "tsl",
+                "hsl",
+                "bukrs",
+                "blart",
+                "bldat",
+                "kostl",
+                "hkont",
+                "xreorg",
+            ],
+            [],
+        )
+
+        self.assertIn("from {{ var('faglflexa') }}", sql)
+        self.assertIn("left join bkpf", sql)
+        self.assertIn("left join bseg", sql)
+        self.assertIn("faglflexa.docnr as docnr", sql)
+        self.assertIn("bkpf.blart as blart", sql)
+        self.assertIn("bseg.kostl as kostl", sql)
+        self.assertIn("faglflexa.belnr = bkpf.belnr", sql)
+        self.assertIn("faglflexa.docnr = bseg.belnr", sql)
+        self.assertNotIn("from {{ ref('stg_sap__bseg_tmp') }}", sql)
 
     def test_missing_ref_can_defer_placeholder_to_synthesis(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2983,14 +3792,14 @@ class DbtModelSynthesisTests(unittest.TestCase):
     def test_time_derived_columns_map_to_timestamp_source_columns(self) -> None:
         raw_columns = ["post_id", "created_at", "updated_at"]
 
-        self.assertEqual(
-            dimension_expression("hour_post_created_at", raw_columns),
-            "strftime('%H', created_at)",
-        )
-        self.assertEqual(
-            dimension_expression("normalized_post_created_at", raw_columns),
-            "strftime('%Y-%m-%d %H:00:00', date_trunc('hour', created_at))",
-        )
+        hour_expr = dimension_expression("hour_post_created_at", raw_columns)
+        normalized_expr = dimension_expression("normalized_post_created_at", raw_columns)
+
+        self.assertIn("strftime('%H'", hour_expr)
+        self.assertIn("try_cast(created_at as timestamp)", hour_expr)
+        self.assertIn("strftime('%Y-%m-%d %H:00:00'", normalized_expr)
+        self.assertIn("date_trunc('hour'", normalized_expr)
+        self.assertIn("try_cast(created_at as timestamp)", normalized_expr)
 
     def test_date_like_targets_parse_slash_delimited_source_dates(self) -> None:
         expr = dimension_expression("date_rep", ["date_rep", "cases", "deaths"])

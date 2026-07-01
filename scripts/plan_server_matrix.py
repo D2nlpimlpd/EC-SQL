@@ -42,7 +42,7 @@ def slugify(text: str) -> str:
 
 def full_profile_config(run_id: str, out_dir: Path) -> dict[str, Any]:
     boyuesql_models = value("BOYUESQL_MODELS", value("BOYUESQL_MODEL", "qwen3-vl:8b"))
-    baseline_models = value("BASELINE_MODELS", value("BASELINE_MODEL", "qwen2.5-coder:7b") + ",sqlcoder:7b,qwen3:32b")
+    baseline_models = value("BASELINE_MODELS", value("BASELINE_MODEL", "qwen2.5-coder:7b") + ",sqlcoder:7b")
     dbt_edit_models = value("DBT_EDIT_MODELS", boyuesql_models)
     return {
         "RUN_ID": run_id,

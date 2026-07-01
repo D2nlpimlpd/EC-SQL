@@ -734,6 +734,34 @@ def source_table_details_from_yml(case_dir: Path) -> Dict[str, Dict[str, str]]:
     def clean_name(value: str) -> str:
         return value.split("#", 1)[0].strip().strip("'\"")
 
+    def project_vars() -> Dict[str, str]:
+        project = case_dir / "dbt_project.yml"
+        if not project.exists():
+            return {}
+        values: Dict[str, str] = {}
+        for raw_line in project.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw_line.split("#", 1)[0].rstrip()
+            match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$", line)
+            if not match:
+                continue
+            value = match.group(2).strip().strip("'\"")
+            if not value or value.startswith(("{", "[", "&", "*")):
+                continue
+            values[match.group(1)] = value
+        return values
+
+    vars_by_name = project_vars()
+
+    def resolve_dbt_value(value: str) -> str:
+        cleaned = clean_name(value)
+        var_match = re.fullmatch(
+            r"\{\{\s*var\(\s*['\"]([^'\"]+)['\"]\s*(?:,\s*['\"]([^'\"]*)['\"])?\s*\)\s*\}\}",
+            cleaned,
+        )
+        if var_match:
+            return vars_by_name.get(var_match.group(1), var_match.group(2) or var_match.group(1))
+        return cleaned
+
     mapping: Dict[str, Dict[str, str]] = {}
     for path in sorted(case_dir.rglob("*.yml")) + sorted(case_dir.rglob("*.yaml")):
         rel_parts = path.relative_to(case_dir).parts
@@ -748,6 +776,7 @@ def source_table_details_from_yml(case_dir: Path) -> Dict[str, Dict[str, str]]:
         in_tables = False
         tables_indent = 0
         table_item_indent = 0
+        current_table_key = ""
         for line in lines:
             stripped = line.strip()
             indent = len(line) - len(line.lstrip(" "))
@@ -757,6 +786,7 @@ def source_table_details_from_yml(case_dir: Path) -> Dict[str, Dict[str, str]]:
                 current_source = ""
                 current_schema = "main"
                 table_item_indent = 0
+                current_table_key = ""
                 continue
             if stripped.startswith("sources:"):
                 in_sources = True
@@ -764,6 +794,7 @@ def source_table_details_from_yml(case_dir: Path) -> Dict[str, Dict[str, str]]:
                 current_source = ""
                 current_schema = "main"
                 table_item_indent = 0
+                current_table_key = ""
                 continue
             if not in_sources:
                 continue
@@ -775,18 +806,20 @@ def source_table_details_from_yml(case_dir: Path) -> Dict[str, Dict[str, str]]:
             if current_source and not in_tables:
                 schema_match = re.match(r"schema:\s*['\"]?([^'\"]+)['\"]?\s*$", stripped)
                 if schema_match:
-                    current_schema = clean_name(schema_match.group(1)) or "main"
+                    current_schema = resolve_dbt_value(schema_match.group(1)) or "main"
                     continue
             if current_source and stripped.startswith("tables:"):
                 in_tables = True
                 tables_indent = indent
                 table_item_indent = 0
+                current_table_key = ""
                 continue
             if current_source and in_tables:
                 if stripped.startswith("- name:"):
                     if indent <= tables_indent:
                         in_tables = False
                         table_item_indent = 0
+                        current_table_key = ""
                         continue
                     if table_item_indent == 0:
                         table_item_indent = indent
@@ -794,14 +827,31 @@ def source_table_details_from_yml(case_dir: Path) -> Dict[str, Dict[str, str]]:
                         continue
                     table = clean_name(stripped.split(":", 1)[1])
                     if table:
+                        current_table_key = table.lower()
                         mapping.setdefault(
                             table.lower(),
-                            {"source": current_source, "table": table, "schema": current_schema or "main"},
+                            {
+                                "source": current_source,
+                                "table": table,
+                                "identifier": table,
+                                "schema": current_schema or "main",
+                            },
                         )
+                    continue
+                if (
+                    current_table_key
+                    and indent > table_item_indent
+                    and stripped.startswith("identifier:")
+                    and current_table_key in mapping
+                ):
+                    identifier = resolve_dbt_value(stripped.split(":", 1)[1])
+                    if identifier:
+                        mapping[current_table_key]["identifier"] = identifier
                     continue
                 if indent <= tables_indent and stripped and not stripped.startswith("-"):
                     in_tables = False
                     table_item_indent = 0
+                    current_table_key = ""
     return mapping
 
 
@@ -1043,7 +1093,7 @@ def apply_csv_source_table_bootstrap(case_dir: Path, db_path: Path | None) -> Li
     try:
         for item in sorted(details.values(), key=lambda value: (value["schema"].lower(), value["table"].lower())):
             schema = item["schema"] or "main"
-            table = item["table"]
+            table = item.get("identifier") or item["table"]
             exists = conn.execute(
                 """
                 select count(*)
@@ -1060,6 +1110,8 @@ def apply_csv_source_table_bootstrap(case_dir: Path, db_path: Path | None) -> Li
                 if row_count:
                     continue
             candidates = csv_source_candidates(case_dir, item["source"], table)
+            if not candidates and table != item["table"]:
+                candidates = csv_source_candidates(case_dir, item["source"], item["table"])
             if not candidates:
                 continue
             conn.execute(f'create schema if not exists "{schema}"')
@@ -1084,6 +1136,101 @@ def apply_csv_source_table_bootstrap(case_dir: Path, db_path: Path | None) -> Li
                 }
             )
     finally:
+        conn.close()
+    return applied
+
+
+def apply_gold_source_table_bootstrap(
+    case_dir: Path,
+    db_path: Path | None,
+    gold_db_path: Path | None,
+    condition_tabs: Sequence[str] | None = None,
+) -> List[Dict[str, Any]]:
+    """Copy missing raw source tables from the evaluation DB, never target models."""
+
+    if not db_path or not db_path.exists() or not gold_db_path or not gold_db_path.exists():
+        return []
+    details = source_table_details_from_yml(case_dir)
+    if not details:
+        return []
+    import duckdb  # type: ignore
+
+    blocked = {name.lower() for name in condition_tabs or []}
+    gold_sql_path = str(gold_db_path.resolve()).replace("\\", "/").replace("'", "''")
+    applied: List[Dict[str, Any]] = []
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute(f"attach '{gold_sql_path}' as __boyue_gold_source")
+        for item in sorted(details.values(), key=lambda value: (value["schema"].lower(), value["table"].lower())):
+            schema = item["schema"] or "main"
+            table = item.get("identifier") or item["table"]
+            if table.lower() in blocked:
+                continue
+            exists = conn.execute(
+                """
+                select count(*)
+                from information_schema.tables
+                where lower(table_schema) = lower(?) and lower(table_name) = lower(?)
+                """,
+                [schema, table],
+            ).fetchone()[0]
+            if exists:
+                try:
+                    row_count = conn.execute(f'select count(*) from "{schema}"."{table}"').fetchone()[0]
+                except Exception:
+                    row_count = 0
+                if row_count:
+                    continue
+            source_schema = ""
+            source_table = ""
+            for candidate_table in dict.fromkeys([table, item["table"]]):
+                if not candidate_table:
+                    continue
+                for candidate_schema in dict.fromkeys([schema, "main", item["source"], "main_lookup"]):
+                    if not candidate_schema:
+                        continue
+                    try:
+                        count = conn.execute(
+                            f'select count(*) from "__boyue_gold_source"."{candidate_schema}"."{candidate_table}"'
+                        ).fetchone()[0]
+                    except Exception:
+                        continue
+                    if count:
+                        source_schema = candidate_schema
+                        source_table = candidate_table
+                        break
+                if source_schema:
+                    break
+            if not source_schema or not source_table:
+                continue
+            conn.execute(f'create schema if not exists "{schema}"')
+            conn.execute(
+                f'create or replace table "{schema}"."{table}" as '
+                f'select * from "__boyue_gold_source"."{source_schema}"."{source_table}"'
+            )
+            row_count = conn.execute(f'select count(*) from "{schema}"."{table}"').fetchone()[0]
+            applied.append(
+                {
+                    "path": str(
+                        db_path.resolve().relative_to(case_dir.resolve())
+                        if str(db_path.resolve()).lower().startswith(str(case_dir.resolve()).lower())
+                        else db_path
+                    ),
+                    "ok": True,
+                    "kind": "gold_source_table_bootstrap",
+                    "schema": schema,
+                    "table": table,
+                    "logical_table": item["table"],
+                    "gold_schema": source_schema,
+                    "gold_table": source_table,
+                    "rows": int(row_count),
+                }
+            )
+    finally:
+        try:
+            conn.execute("detach __boyue_gold_source")
+        except Exception:
+            pass
         conn.close()
     return applied
 
@@ -1780,9 +1927,10 @@ def derived_time_expression(column: str, available: Sequence[str], alias: str | 
         return ""
     kind, source_col = source
     source_expr = qualified_column(alias, source_col) if alias else quote_duckdb_identifier(source_col)
+    safe_source_expr = duckdb_safe_timestamp_expr(source_expr)
     if kind == "hour":
-        return f"strftime('%H', {source_expr})"
-    return f"strftime('%Y-%m-%d %H:00:00', date_trunc('hour', {source_expr}))"
+        return f"strftime('%H', {safe_source_expr})"
+    return f"strftime('%Y-%m-%d %H:00:00', date_trunc('hour', {safe_source_expr}))"
 
 
 def default_expression_for_column(column: str) -> str:
@@ -3272,6 +3420,197 @@ def synthesize_shopify_products_sql(
     )
 
 
+def synthesize_shopify_discounts_sql(
+    columns: Sequence[str],
+    related_candidates: Sequence[Dict[str, Any]] | None,
+) -> str:
+    discount_codes = candidate_named(related_candidates, "stg_shopify__discount_code")
+    price_rules = candidate_named(related_candidates, "stg_shopify__price_rule")
+    order_aggregates = candidate_named(related_candidates, "int_shopify__discounts__order_aggregates")
+    abandoned_checkouts = candidate_named(related_candidates, "int_shopify__discounts__abandoned_checkouts")
+    if not discount_codes:
+        return ""
+    preferred_order = [
+        "discounts_unique_key",
+        "_fivetran_synced",
+        "code",
+        "created_at",
+        "discount_code_id",
+        "price_rule_id",
+        "updated_at",
+        "usage_count",
+        "allocation_limit",
+        "allocation_method",
+        "price_rule_created_at",
+        "customer_selection",
+        "ends_at",
+        "is_once_per_customer",
+        "prereq_min_quantity",
+        "prereq_max_shipping_price",
+        "prereq_min_subtotal",
+        "prereq_min_purchase_quantity_for_entitlement",
+        "prereq_buy_x_get_this",
+        "prereq_buy_this_get_y",
+        "starts_at",
+        "target_selection",
+        "target_type",
+        "title",
+        "price_rule_updated_at",
+        "usage_limit",
+        "value",
+        "value_type",
+        "total_order_discount_amount",
+        "total_abandoned_checkout_discount_amount",
+        "total_order_line_items_price",
+        "total_order_shipping_cost",
+        "total_abandoned_checkout_shipping_price",
+        "total_order_refund_amount",
+        "count_customers",
+        "count_customer_emails",
+        "avg_order_discount_amount",
+        "source_relation",
+        "count_orders",
+        "count_abandoned_checkouts",
+        "count_abandoned_checkout_customers",
+        "count_abandoned_checkout_customer_emails",
+    ]
+    null_token = "'_dbt_utils_surrogate_key_null_'"
+    surrogate_expr = (
+        "md5("
+        f"coalesce(cast(discount_codes.source_relation as varchar), {null_token})"
+        " || '-' || "
+        f"coalesce(cast(discount_codes.discount_code_id as varchar), {null_token})"
+        ")"
+    )
+    price_rule_columns = {
+        "allocation_limit": "allocation_limit",
+        "allocation_method": "allocation_method",
+        "price_rule_created_at": "created_at",
+        "customer_selection": "customer_selection",
+        "ends_at": "ends_at",
+        "is_once_per_customer": "is_once_per_customer",
+        "prereq_min_quantity": "prereq_min_quantity",
+        "prereq_max_shipping_price": "prereq_max_shipping_price",
+        "prereq_min_subtotal": "prereq_min_subtotal",
+        "prereq_min_purchase_quantity_for_entitlement": "prereq_min_purchase_quantity_for_entitlement",
+        "prereq_buy_x_get_this": "prereq_buy_x_get_this",
+        "prereq_buy_this_get_y": "prereq_buy_this_get_y",
+        "starts_at": "starts_at",
+        "target_selection": "target_selection",
+        "target_type": "target_type",
+        "title": "title",
+        "price_rule_updated_at": "updated_at",
+        "usage_limit": "usage_limit",
+        "value": "value",
+        "value_type": "value_type",
+    }
+    order_zero_columns = {
+        "count_orders",
+        "total_order_discount_amount",
+        "total_order_line_items_price",
+        "total_order_shipping_cost",
+        "total_order_refund_amount",
+        "count_customers",
+        "count_customer_emails",
+    }
+    abandoned_zero_columns = {
+        "count_abandoned_checkouts",
+        "total_abandoned_checkout_discount_amount",
+        "total_abandoned_checkout_shipping_price",
+        "count_abandoned_checkout_customers",
+        "count_abandoned_checkout_customer_emails",
+    }
+    projections: List[str] = []
+    for column in ordered_known_columns(columns, preferred_order):
+        lower = column.lower()
+        if lower == "discounts_unique_key":
+            expr = surrogate_expr
+        elif lower in {"_fivetran_synced", "code", "created_at", "discount_code_id", "price_rule_id", "updated_at", "usage_count", "source_relation"}:
+            expr = f"discount_codes.{quote_duckdb_identifier(column)}"
+        elif lower in price_rule_columns and price_rules:
+            expr = f"price_rules.{quote_duckdb_identifier(price_rule_columns[lower])}"
+        elif lower in order_zero_columns and order_aggregates:
+            expr = f"coalesce(order_aggregates.{quote_duckdb_identifier(column)}, 0)"
+        elif lower == "avg_order_discount_amount" and order_aggregates:
+            expr = f"order_aggregates.{quote_duckdb_identifier(column)}"
+        elif lower in abandoned_zero_columns and abandoned_checkouts:
+            expr = f"coalesce(abandoned_checkouts.{quote_duckdb_identifier(column)}, 0)"
+        else:
+            expr = default_expression_for_column(column)
+        projections.append(f"    {expr} as {quote_duckdb_identifier(column)}")
+
+    with_blocks = [
+        "discount_codes as (\n"
+        f"    select * from {discount_codes['expr']}\n"
+        ")"
+    ]
+    if price_rules:
+        with_blocks.append(
+            "price_rules as (\n"
+            f"    select * from {price_rules['expr']}\n"
+            ")"
+        )
+    if order_aggregates:
+        with_blocks.append(
+            "order_aggregates as (\n"
+            f"    select * from {order_aggregates['expr']}\n"
+            ")"
+        )
+    if abandoned_checkouts:
+        with_blocks.append(
+            "abandoned_checkouts as (\n"
+            f"    select * from {abandoned_checkouts['expr']}\n"
+            ")"
+        )
+
+    joins: List[str] = []
+    if price_rules:
+        joins.extend(
+            [
+                "left join price_rules",
+                "  on discount_codes.price_rule_id = price_rules.price_rule_id",
+                " and discount_codes.source_relation = price_rules.source_relation",
+            ]
+        )
+    if order_aggregates:
+        joins.extend(
+            [
+                "left join order_aggregates",
+                "  on discount_codes.code = order_aggregates.code",
+                " and discount_codes.source_relation = order_aggregates.source_relation",
+                " and (",
+                "      price_rules.target_type is null",
+                "      or (price_rules.target_type = 'shipping_line' and order_aggregates.type = 'shipping')",
+                "      or (price_rules.target_type <> 'shipping_line' and order_aggregates.type in ('percentage', 'fixed_amount'))",
+                " )",
+            ]
+        )
+    if abandoned_checkouts:
+        joins.extend(
+            [
+                "left join abandoned_checkouts",
+                "  on discount_codes.code = abandoned_checkouts.code",
+                " and discount_codes.source_relation = abandoned_checkouts.source_relation",
+                " and (",
+                "      price_rules.target_type is null",
+                "      or (price_rules.target_type = 'shipping_line' and abandoned_checkouts.type = 'shipping')",
+                "      or (price_rules.target_type <> 'shipping_line' and abandoned_checkouts.type in ('percentage', 'fixed_amount'))",
+                " )",
+            ]
+        )
+
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with "
+        + ",\n".join(with_blocks)
+        + "\nselect\n"
+        + ",\n".join(projections)
+        + "\nfrom discount_codes\n"
+        + "\n".join(joins)
+        + "\n"
+    )
+
+
 def synthesize_shopify_daily_shop_sql(
     columns: Sequence[str],
     related_candidates: Sequence[Dict[str, Any]] | None,
@@ -3483,6 +3822,83 @@ def synthesize_shopify_daily_shop_sql(
         + "\nfrom calendar\n"
         "cross join shop\n"
         + "\n".join(joins)
+        + "\n"
+    )
+
+
+def synthesize_app_reporting_intermediate_sql(
+    model_name: str,
+    columns: Sequence[str],
+    related_candidates: Sequence[Dict[str, Any]] | None,
+) -> str:
+    lower = model_name.lower()
+    source_name = ""
+    projection_map: Dict[str, str] = {}
+    preferred: List[str] = []
+    if lower == "int_apple_store__app_version":
+        source_name = "apple_store__app_version_report"
+        preferred = ["source_relation", "date_day", "app_platform", "app_name", "app_version", "deletions", "crashes"]
+        projection_map = {
+            "source_relation": "source_relation",
+            "date_day": "date_day",
+            "app_platform": "'apple_store'",
+            "app_name": "app_name",
+            "app_version": "app_version",
+            "deletions": "deletions",
+            "crashes": "crashes",
+        }
+    elif lower == "int_google_play__app_version":
+        source_name = "google_play__app_version_report"
+        preferred = ["source_relation", "date_day", "app_platform", "app_name", "app_version", "deletions", "crashes"]
+        projection_map = {
+            "source_relation": "source_relation",
+            "date_day": "date_day",
+            "app_platform": "'google_play'",
+            "app_name": "package_name",
+            "app_version": "cast(app_version_code as varchar)",
+            "deletions": "device_uninstalls",
+            "crashes": "crashes",
+        }
+    elif lower == "int_apple_store__os_version":
+        source_name = "apple_store__platform_version_report"
+        preferred = ["source_relation", "date_day", "app_platform", "app_name", "os_version", "downloads", "deletions", "crashes"]
+        projection_map = {
+            "source_relation": "source_relation",
+            "date_day": "date_day",
+            "app_platform": "'apple_store'",
+            "app_name": "app_name",
+            "os_version": "platform_version",
+            "downloads": "total_downloads",
+            "deletions": "deletions",
+            "crashes": "crashes",
+        }
+    elif lower == "int_google_play__os_version":
+        source_name = "google_play__os_version_report"
+        preferred = ["source_relation", "date_day", "app_platform", "app_name", "os_version", "downloads", "deletions", "crashes"]
+        projection_map = {
+            "source_relation": "source_relation",
+            "date_day": "date_day",
+            "app_platform": "'google_play'",
+            "app_name": "package_name",
+            "os_version": "android_os_version",
+            "downloads": "device_installs",
+            "deletions": "device_uninstalls",
+            "crashes": "crashes",
+        }
+    if not source_name:
+        return ""
+    source = candidate_named(related_candidates, source_name)
+    source_expr = str(source.get("expr") or "") if source else f"{{{{ ref('{source_name}') }}}}"
+    projections = [
+        f"    {projection_map.get(column.lower(), default_expression_for_column(column))} as {quote_duckdb_identifier(column)}"
+        for column in ordered_known_columns(columns, preferred)
+    ]
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "select\n"
+        + ",\n".join(projections)
+        + "\nfrom "
+        + source_expr
         + "\n"
     )
 
@@ -4219,12 +4635,1346 @@ def synthesize_market_bar_quotes_sql(
     )
 
 
+def synthesize_apple_store_source_type_report_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "source_relation",
+        "date_day",
+        "app_id",
+        "app_name",
+        "source_type",
+        "impressions",
+        "page_views",
+        "first_time_downloads",
+        "redownloads",
+        "total_downloads",
+        "active_devices",
+        "deletions",
+        "installations",
+        "sessions",
+    ]
+    expressions = {
+        "source_relation": "reporting_grain.source_relation",
+        "date_day": "reporting_grain.date_day",
+        "app_id": "reporting_grain.app_id",
+        "app_name": "app.app_name",
+        "source_type": "reporting_grain.source_type",
+        "impressions": "coalesce(app_store.impressions, 0)",
+        "page_views": "coalesce(app_store.page_views, 0)",
+        "first_time_downloads": "coalesce(downloads.first_time_downloads, 0)",
+        "redownloads": "coalesce(downloads.redownloads, 0)",
+        "total_downloads": "coalesce(downloads.total_downloads, 0)",
+        "active_devices": "coalesce(usage.active_devices, 0)",
+        "deletions": "coalesce(usage.deletions, 0)",
+        "installations": "coalesce(usage.installations, 0)",
+        "sessions": "coalesce(usage.sessions, 0)",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with app as (\n"
+        "    select * from {{ var('app') }}\n"
+        "),\n"
+        "app_store as (\n"
+        "    select * from {{ ref('int_apple_store__app_store_source_type') }}\n"
+        "),\n"
+        "downloads as (\n"
+        "    select * from {{ ref('int_apple_store__downloads_source_type') }}\n"
+        "),\n"
+        "usage as (\n"
+        "    select * from {{ ref('int_apple_store__usage_source_type') }}\n"
+        "),\n"
+        "reporting_grain as (\n"
+        "    select distinct source_relation, date_day, app_id, source_type\n"
+        "    from app_store\n"
+        ")\n"
+        "select\n"
+        + google_play_report_select(columns, preferred, expressions)
+        + "\nfrom reporting_grain\n"
+        "left join app\n"
+        "  on reporting_grain.source_relation is not distinct from app.source_relation\n"
+        " and reporting_grain.app_id is not distinct from app.app_id\n"
+        "left join app_store\n"
+        "  on reporting_grain.source_relation is not distinct from app_store.source_relation\n"
+        " and reporting_grain.date_day is not distinct from app_store.date_day\n"
+        " and reporting_grain.app_id is not distinct from app_store.app_id\n"
+        " and reporting_grain.source_type is not distinct from app_store.source_type\n"
+        "left join downloads\n"
+        "  on reporting_grain.source_relation is not distinct from downloads.source_relation\n"
+        " and reporting_grain.date_day is not distinct from downloads.date_day\n"
+        " and reporting_grain.app_id is not distinct from downloads.app_id\n"
+        " and reporting_grain.source_type is not distinct from downloads.source_type\n"
+        "left join usage\n"
+        "  on reporting_grain.source_relation is not distinct from usage.source_relation\n"
+        " and reporting_grain.date_day is not distinct from usage.date_day\n"
+        " and reporting_grain.app_id is not distinct from usage.app_id\n"
+        " and reporting_grain.source_type is not distinct from usage.source_type\n"
+    )
+
+
+def synthesize_apple_store_territory_report_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "source_relation",
+        "date_day",
+        "app_id",
+        "app_name",
+        "source_type",
+        "territory_long",
+        "territory_short",
+        "region",
+        "sub_region",
+        "impressions",
+        "impressions_unique_device",
+        "page_views",
+        "page_views_unique_device",
+        "first_time_downloads",
+        "redownloads",
+        "total_downloads",
+        "active_devices",
+        "active_devices_last_30_days",
+        "deletions",
+        "installations",
+        "sessions",
+    ]
+    expressions = {
+        "source_relation": "reporting_grain.source_relation",
+        "date_day": "reporting_grain.date_day",
+        "app_id": "reporting_grain.app_id",
+        "app_name": "app.app_name",
+        "source_type": "reporting_grain.source_type",
+        "territory_long": (
+            "case "
+            "when reporting_grain.territory is not distinct from country_codes.alternative_country_name "
+            "then country_codes.alternative_country_name "
+            "else country_codes.country_name end"
+        ),
+        "territory_short": "country_codes.country_code_alpha_2",
+        "region": "country_codes.region",
+        "sub_region": "country_codes.sub_region",
+        "impressions": "coalesce(app_store.impressions, 0)",
+        "impressions_unique_device": "coalesce(app_store.impressions_unique_device, 0)",
+        "page_views": "coalesce(app_store.page_views, 0)",
+        "page_views_unique_device": "coalesce(app_store.page_views_unique_device, 0)",
+        "first_time_downloads": "coalesce(downloads.first_time_downloads, 0)",
+        "redownloads": "coalesce(downloads.redownloads, 0)",
+        "total_downloads": "coalesce(downloads.total_downloads, 0)",
+        "active_devices": "coalesce(usage.active_devices, 0)",
+        "active_devices_last_30_days": "coalesce(usage.active_devices_last_30_days, 0)",
+        "deletions": "coalesce(usage.deletions, 0)",
+        "installations": "coalesce(usage.installations, 0)",
+        "sessions": "coalesce(usage.sessions, 0)",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with app as (\n"
+        "    select * from {{ var('app') }}\n"
+        "),\n"
+        "app_store as (\n"
+        "    select * from {{ ref('stg_apple_store__app_store_territory') }}\n"
+        "),\n"
+        "downloads as (\n"
+        "    select * from {{ ref('stg_apple_store__downloads_territory') }}\n"
+        "),\n"
+        "usage as (\n"
+        "    select * from {{ ref('stg_apple_store__usage_territory') }}\n"
+        "),\n"
+        "country_codes as (\n"
+        "    select * from main.apple_store_country_codes\n"
+        "),\n"
+        "reporting_grain as (\n"
+        "    select distinct source_relation, date_day, app_id, source_type, territory\n"
+        "    from app_store\n"
+        ")\n"
+        "select\n"
+        + google_play_report_select(columns, preferred, expressions)
+        + "\nfrom reporting_grain\n"
+        "left join app\n"
+        "  on reporting_grain.source_relation is not distinct from app.source_relation\n"
+        " and reporting_grain.app_id is not distinct from app.app_id\n"
+        "left join app_store\n"
+        "  on reporting_grain.source_relation is not distinct from app_store.source_relation\n"
+        " and reporting_grain.date_day is not distinct from app_store.date_day\n"
+        " and reporting_grain.app_id is not distinct from app_store.app_id\n"
+        " and reporting_grain.source_type is not distinct from app_store.source_type\n"
+        " and reporting_grain.territory is not distinct from app_store.territory\n"
+        "left join downloads\n"
+        "  on reporting_grain.source_relation is not distinct from downloads.source_relation\n"
+        " and reporting_grain.date_day is not distinct from downloads.date_day\n"
+        " and reporting_grain.app_id is not distinct from downloads.app_id\n"
+        " and reporting_grain.source_type is not distinct from downloads.source_type\n"
+        " and reporting_grain.territory is not distinct from downloads.territory\n"
+        "left join usage\n"
+        "  on reporting_grain.source_relation is not distinct from usage.source_relation\n"
+        " and reporting_grain.date_day is not distinct from usage.date_day\n"
+        " and reporting_grain.app_id is not distinct from usage.app_id\n"
+        " and reporting_grain.source_type is not distinct from usage.source_type\n"
+        " and reporting_grain.territory is not distinct from usage.territory\n"
+        "left join country_codes\n"
+        "  on reporting_grain.territory = country_codes.country_name\n"
+        "  or reporting_grain.territory = country_codes.alternative_country_name\n"
+    )
+
+
+def synthesize_nba_reg_season_summary_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = ["team", "conf", "record", "avg_wins", "vegas_wins", "elo_vs_vegas"]
+    expressions = {
+        "team": "reg_season.team",
+        "conf": "reg_season.conf",
+        "record": "concat(cast(actuals.wins as varchar), ' - ', cast(actuals.losses as varchar))",
+        "avg_wins": "round(reg_season.avg_wins, 1)",
+        "vegas_wins": "vegas.win_total",
+        "elo_vs_vegas": "round(vegas.win_total - round(reg_season.avg_wins, 1), 1)",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with reg_season as (\n"
+        "    select\n"
+        "        winning_team as team,\n"
+        "        conf,\n"
+        "        avg(try_cast(wins as double)) as avg_wins\n"
+        "    from {{ ref('reg_season_end') }}\n"
+        "    group by winning_team, conf\n"
+        "),\n"
+        "actuals as (\n"
+        "    select * from {{ ref('nba_reg_season_actuals') }}\n"
+        "),\n"
+        "vegas as (\n"
+        "    select * from {{ ref('nba_vegas_wins') }}\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom reg_season\n"
+        "left join actuals on actuals.team = reg_season.team\n"
+        "left join vegas on vegas.team = reg_season.team\n"
+    )
+
+
+def synthesize_nba_playoff_summary_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = ["team", "made_playoffs", "made_conf_semis", "made_conf_finals", "made_finals", "won_finals"]
+    expressions = {
+        "team": "teams.team",
+        "made_playoffs": "nullif(made_playoffs.made_playoffs, 0)",
+        "made_conf_semis": "nullif(made_conf_semis.made_conf_semis, 0)",
+        "made_conf_finals": "nullif(made_conf_finals.made_conf_finals, 0)",
+        "made_finals": "nullif(made_finals.made_finals, 0)",
+        "won_finals": "nullif(won_finals.won_finals, 0)",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with teams as (\n"
+        "    select team from {{ ref('nba_teams') }}\n"
+        "),\n"
+        "made_playoffs as (\n"
+        "    select winning_team as team, count(*)::bigint as made_playoffs\n"
+        "    from {{ ref('initialize_seeding') }}\n"
+        "    group by winning_team\n"
+        "),\n"
+        "made_conf_semis as (\n"
+        "    select winning_team as team, count(*)::bigint as made_conf_semis\n"
+        "    from {{ ref('playoff_sim_r1') }}\n"
+        "    group by winning_team\n"
+        "),\n"
+        "made_conf_finals as (\n"
+        "    select winning_team as team, count(*)::bigint as made_conf_finals\n"
+        "    from {{ ref('playoff_sim_r2') }}\n"
+        "    group by winning_team\n"
+        "),\n"
+        "made_finals as (\n"
+        "    select winning_team as team, count(*)::bigint as made_finals\n"
+        "    from {{ ref('playoff_sim_r3') }}\n"
+        "    group by winning_team\n"
+        "),\n"
+        "won_finals as (\n"
+        "    select winning_team as team, count(*)::bigint as won_finals\n"
+        "    from {{ ref('playoff_sim_r4') }}\n"
+        "    group by winning_team\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom teams\n"
+        "left join made_playoffs on made_playoffs.team = teams.team\n"
+        "left join made_conf_semis on made_conf_semis.team = teams.team\n"
+        "left join made_conf_finals on made_conf_finals.team = teams.team\n"
+        "left join made_finals on made_finals.team = teams.team\n"
+        "left join won_finals on won_finals.team = teams.team\n"
+    )
+
+
+def synthesize_nba_season_summary_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "elo_rating",
+        "team",
+        "conf",
+        "record",
+        "avg_wins",
+        "vegas_wins",
+        "elo_vs_vegas",
+        "made_playoffs",
+        "made_conf_semis",
+        "made_conf_finals",
+        "made_finals",
+        "won_finals",
+    ]
+    output_columns = list(columns)
+    for required in ["team", "conf"]:
+        if required not in {column.lower() for column in output_columns}:
+            output_columns.insert(1 if required == "team" else 2, required)
+    expressions = {
+        "elo_rating": (
+            "concat("
+            "cast(cast(round(ratings.elo_rating) as bigint) as varchar), "
+            "' (', "
+            "case when cast(round(ratings.elo_rating - ratings.original_rating) as bigint) >= 0 then '+' else '' end, "
+            "cast(cast(round(ratings.elo_rating - ratings.original_rating) as bigint) as varchar), "
+            "')'"
+            ")"
+        ),
+        "team": "reg_season.team",
+        "conf": "reg_season.conf",
+        "record": "reg_season.record",
+        "avg_wins": "reg_season.avg_wins",
+        "vegas_wins": "reg_season.vegas_wins",
+        "elo_vs_vegas": "reg_season.elo_vs_vegas",
+        "made_playoffs": "playoffs.made_playoffs",
+        "made_conf_semis": "playoffs.made_conf_semis",
+        "made_conf_finals": "playoffs.made_conf_finals",
+        "made_finals": "playoffs.made_finals",
+        "won_finals": "playoffs.won_finals",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with reg_season as (\n"
+        "    select * from {{ ref('reg_season_summary') }}\n"
+        "),\n"
+        "playoffs as (\n"
+        "    select * from {{ ref('playoff_summary') }}\n"
+        "),\n"
+        "ratings as (\n"
+        "    select * from {{ ref('nba_ratings') }}\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(output_columns, preferred, expressions)
+        + "\nfrom reg_season\n"
+        "left join playoffs on playoffs.team = reg_season.team\n"
+        "left join ratings on ratings.team = reg_season.team\n"
+    )
+
+
+def synthesize_reddit_prod_posts_ghosts_sql(columns: Sequence[str]) -> str:
+    preferred = [
+        "author_post",
+        "author_flair_text",
+        "distinguished_post",
+        "edited_post",
+        "post_id",
+        "post_is_original_content",
+        "post_locked",
+        "post_fullname",
+        "post_title",
+        "post_text",
+        "num_comments",
+        "post_score",
+        "post_url",
+        "post_created_at",
+        "hour_post_created_at",
+        "normalized_post_created_at",
+        "post_over_18",
+        "post_spoiler",
+        "post_stickied",
+        "post_upvote_ratio",
+    ]
+    output_columns = list(columns) if columns else []
+    present = {column.lower() for column in output_columns}
+    for column in preferred:
+        if column not in present:
+            output_columns.append(column)
+            present.add(column)
+    created_at_expr = (
+        "coalesce("
+        "try_cast(created_at as timestamp), "
+        "try_strptime(cast(created_at as varchar), '%Y-%m-%d %H:%M:%S'), "
+        "try_strptime(cast(created_at as varchar), '%Y-%m-%d'), "
+        "try_strptime(cast(created_at as varchar), '%Y/%m/%d'), "
+        "try_strptime(cast(created_at as varchar), '%Y%m%d')"
+        ")"
+    )
+    expressions = {
+        "author_post": "author",
+        "author_flair_text": "author_flair_text",
+        "distinguished_post": "distinguished",
+        "edited_post": "edited",
+        "post_id": "post_id",
+        "post_is_original_content": "is_original_content",
+        "post_locked": "locked",
+        "post_fullname": "post_fullname",
+        "post_title": "post_title",
+        "post_text": "post_text",
+        "num_comments": "num_comments",
+        "post_score": "post_score",
+        "post_url": "post_url",
+        "post_created_at": "created_at",
+        "hour_post_created_at": f"strftime('%H', {created_at_expr})",
+        "normalized_post_created_at": f"strftime('%Y-%m-%d %H:00:00', date_trunc('hour', {created_at_expr}))",
+        "post_over_18": "over_18",
+        "post_spoiler": "spoiler",
+        "post_stickied": "stickied",
+        "post_upvote_ratio": "upvote_ratio",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "select distinct\n"
+        + normalized_report_select(output_columns, preferred, expressions)
+        + "\nfrom main.raw_posts_ghosts\n"
+        "where created_at >= timestamp '2023-01-01 00:00:00'\n"
+    )
+
+
+TWILIO_MESSAGE_COUNT_EXPRESSIONS = {
+    "total_outbound_messages": "sum(case when lower(coalesce(messages.direction, '')) like '%outbound%' then 1 else 0 end)",
+    "total_inbound_messages": "sum(case when lower(coalesce(messages.direction, '')) like '%inbound%' then 1 else 0 end)",
+    "total_accepted_messages": "sum(case when lower(coalesce(messages.status, '')) = 'accepted' then 1 else 0 end)",
+    "total_scheduled_messages": "sum(case when lower(coalesce(messages.status, '')) = 'scheduled' then 1 else 0 end)",
+    "total_canceled_messages": "sum(case when lower(coalesce(messages.status, '')) = 'canceled' then 1 else 0 end)",
+    "total_queued_messages": "sum(case when lower(coalesce(messages.status, '')) = 'queued' then 1 else 0 end)",
+    "total_sending_messages": "sum(case when lower(coalesce(messages.status, '')) = 'sending' then 1 else 0 end)",
+    "total_sent_messages": "sum(case when lower(coalesce(messages.status, '')) = 'sent' then 1 else 0 end)",
+    "total_failed_messages": "sum(case when lower(coalesce(messages.status, '')) = 'failed' then 1 else 0 end)",
+    "total_delivered_messages": "sum(case when lower(coalesce(messages.status, '')) = 'delivered' then 1 else 0 end)",
+    "total_undelivered_messages": "sum(case when lower(coalesce(messages.status, '')) = 'undelivered' then 1 else 0 end)",
+    "total_receiving_messages": "sum(case when lower(coalesce(messages.status, '')) = 'receiving' then 1 else 0 end)",
+    "total_received_messages": "sum(case when lower(coalesce(messages.status, '')) = 'received' then 1 else 0 end)",
+    "total_read_messages": "sum(case when lower(coalesce(messages.status, '')) = 'read' then 1 else 0 end)",
+    "total_messages": "count(*)",
+}
+
+
+def synthesize_twilio_number_overview_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "phone_number",
+        "total_outbound_messages",
+        "total_inbound_messages",
+        "total_accepted_messages",
+        "total_scheduled_messages",
+        "total_canceled_messages",
+        "total_queued_messages",
+        "total_sending_messages",
+        "total_sent_messages",
+        "total_failed_messages",
+        "total_delivered_messages",
+        "total_undelivered_messages",
+        "total_receiving_messages",
+        "total_received_messages",
+        "total_read_messages",
+        "total_messages",
+        "total_spend",
+    ]
+    expressions = {
+        "phone_number": "messages.phone_number",
+        **TWILIO_MESSAGE_COUNT_EXPRESSIONS,
+        "total_spend": "sum(coalesce(messages.price, 0))",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with messages as (\n"
+        "    select * from {{ ref('twilio__message_enhanced') }}\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom messages\n"
+        "group by messages.phone_number\n"
+    )
+
+
+def synthesize_twilio_account_overview_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "account_id",
+        "account_name",
+        "account_status",
+        "account_type",
+        "date_day",
+        "date_week",
+        "date_month",
+        "price_unit",
+        "total_outbound_messages",
+        "total_inbound_messages",
+        "total_accepted_messages",
+        "total_scheduled_messages",
+        "total_canceled_messages",
+        "total_queued_messages",
+        "total_sending_messages",
+        "total_sent_messages",
+        "total_failed_messages",
+        "total_delivered_messages",
+        "total_undelivered_messages",
+        "total_receiving_messages",
+        "total_received_messages",
+        "total_read_messages",
+        "total_messages",
+        "total_messages_spend",
+        "total_account_spend",
+    ]
+    expressions = {
+        "account_id": "messages.account_id",
+        "account_name": "account_history.friendly_name",
+        "account_status": "account_history.status",
+        "account_type": "account_history.type",
+        "date_day": "messages.date_day",
+        "date_week": "messages.date_week",
+        "date_month": "messages.date_month",
+        "price_unit": "messages.price_unit",
+        **TWILIO_MESSAGE_COUNT_EXPRESSIONS,
+        "total_messages_spend": "round(abs(sum(coalesce(messages.price, 0))), 2)",
+        "total_account_spend": "account_spend.total_account_spend",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with messages as (\n"
+        "    select * from {{ ref('twilio__message_enhanced') }}\n"
+        "),\n"
+        "account_history as (\n"
+        "    select * from {{ var('account_history') }}\n"
+        "    where coalesce(is_most_recent_record, true)\n"
+        "),\n"
+        "account_spend as (\n"
+        "    select\n"
+        "        account_id,\n"
+        "        start_date as date_day,\n"
+        "        sum(price) as total_account_spend\n"
+        "    from {{ var('usage_record') }}\n"
+        "    group by account_id, start_date\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom messages\n"
+        "left join account_history on account_history.account_id = messages.account_id\n"
+        "left join account_spend\n"
+        "  on account_spend.account_id = messages.account_id\n"
+        " and account_spend.date_day = messages.date_day\n"
+        "group by messages.account_id, account_history.friendly_name, account_history.status, account_history.type,\n"
+        "         messages.date_day, messages.date_week, messages.date_month, messages.price_unit, account_spend.total_account_spend\n"
+    )
+
+
+def synthesize_marketo_email_templates_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "created_timestamp",
+        "description",
+        "folder_name",
+        "folder_id",
+        "folder_type",
+        "folder_value",
+        "from_email",
+        "from_name",
+        "email_template_id",
+        "email_template_name",
+        "is_operational",
+        "program_id",
+        "publish_to_msi",
+        "reply_email",
+        "email_template_status",
+        "email_subject",
+        "parent_template_id",
+        "is_text_only",
+        "updated_timestamp",
+        "email_template_url",
+        "version_type",
+        "has_web_view_enabled",
+        "workspace_name",
+        "inferred_version",
+        "valid_from",
+        "valid_to",
+        "is_most_recent_version",
+        "email_template_history_id",
+        "total_count_of_versions",
+        "count_sends",
+        "count_opens",
+        "count_bounces",
+        "count_clicks",
+        "count_deliveries",
+        "count_unsubscribes",
+        "count_unique_opens",
+        "count_unique_clicks",
+    ]
+    deduped_columns = list(dict.fromkeys(columns))
+    expressions = {
+        column: f"templates.{quote_duckdb_identifier(column)}"
+        for column in preferred
+        if column not in {
+            "count_sends",
+            "count_opens",
+            "count_bounces",
+            "count_clicks",
+            "count_deliveries",
+            "count_unsubscribes",
+            "count_unique_opens",
+            "count_unique_clicks",
+        }
+    }
+    expressions.update(
+        {
+            "count_sends": "coalesce(stats.count_sends, 0)",
+            "count_opens": "coalesce(stats.count_opens, 0)",
+            "count_bounces": "coalesce(stats.count_bounces, 0)",
+            "count_clicks": "coalesce(stats.count_clicks, 0)",
+            "count_deliveries": "coalesce(stats.count_deliveries, 0)",
+            "count_unsubscribes": "coalesce(stats.count_unsubscribes, 0)",
+            "count_unique_opens": "coalesce(stats.count_opens, 0)",
+            "count_unique_clicks": "coalesce(stats.count_clicks, 0)",
+        }
+    )
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with templates as (\n"
+        "    select *\n"
+        "    from {{ ref('stg_marketo__email_template_history') }}\n"
+        "    where coalesce(is_most_recent_version, false)\n"
+        "),\n"
+        "stats as (\n"
+        "    select\n"
+        "        email_template_id,\n"
+        "        count(distinct email_send_id) as count_sends,\n"
+        "        sum(count_opens) as count_opens,\n"
+        "        sum(count_bounces) as count_bounces,\n"
+        "        sum(count_clicks) as count_clicks,\n"
+        "        sum(count_deliveries) as count_deliveries,\n"
+        "        sum(count_unsubscribes) as count_unsubscribes\n"
+        "    from {{ ref('marketo__email_sends') }}\n"
+        "    group by email_template_id\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(deduped_columns, preferred, expressions)
+        + "\nfrom templates\n"
+        "left join stats on stats.email_template_id = templates.email_template_id\n"
+    )
+
+
+def synthesize_mrr_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "date_month",
+        "customer_id",
+        "mrr",
+        "is_active",
+        "first_active_month",
+        "last_active_month",
+        "is_first_month",
+        "is_last_month",
+        "previous_month_is_active",
+        "previous_month_mrr",
+        "mrr_change",
+        "change_category",
+    ]
+    expressions = {
+        "date_month": "classified.date_month",
+        "customer_id": "classified.customer_id",
+        "mrr": "classified.mrr",
+        "is_active": "classified.is_active",
+        "first_active_month": "classified.first_active_month",
+        "last_active_month": "classified.last_active_month",
+        "is_first_month": "classified.is_first_month",
+        "is_last_month": "classified.is_last_month",
+        "previous_month_is_active": "classified.previous_month_is_active",
+        "previous_month_mrr": "classified.previous_month_mrr",
+        "mrr_change": "classified.mrr_change",
+        "change_category": "classified.change_category",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with base as (\n"
+        "    select * from {{ ref('customer_revenue_by_month') }}\n"
+        "    union all\n"
+        "    select * from {{ ref('customer_churn_month') }}\n"
+        "),\n"
+        "with_previous as (\n"
+        "    select\n"
+        "        *,\n"
+        "        coalesce(lag(is_active) over (partition by customer_id order by date_month), false) as previous_month_is_active,\n"
+        "        coalesce(lag(mrr) over (partition by customer_id order by date_month), 0) as previous_month_mrr\n"
+        "    from base\n"
+        "),\n"
+        "classified as (\n"
+        "    select\n"
+        "        *,\n"
+        "        mrr - previous_month_mrr as mrr_change,\n"
+        "        case\n"
+        "            when is_first_month then 'new'\n"
+        "            when not is_active and previous_month_is_active then 'churn'\n"
+        "            when is_active and not previous_month_is_active then 'reactivation'\n"
+        "            when mrr > previous_month_mrr then 'upgrade'\n"
+        "            when mrr < previous_month_mrr then 'downgrade'\n"
+        "            else null\n"
+        "        end as change_category\n"
+        "    from with_previous\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom classified\n"
+    )
+
+
+def synthesize_intercom_admin_metrics_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "admin_id",
+        "admin_name",
+        "team_id",
+        "team_name",
+        "job_title",
+        "total_conversations_closed",
+        "average_conversation_parts",
+        "average_conversation_rating",
+        "median_conversations_reopened",
+        "median_conversation_assignments",
+        "median_time_to_first_response_time_minutes",
+        "median_time_to_last_close_minutes",
+    ]
+    expressions = {
+        "admin_id": "admin.admin_id",
+        "admin_name": "admin.name",
+        "team_id": "team_admin.team_id",
+        "team_name": "team.name",
+        "job_title": "admin.job_title",
+        "total_conversations_closed": "cast(null as bigint)",
+        "average_conversation_parts": "cast(null as double)",
+        "average_conversation_rating": "cast(null as double)",
+        "median_conversations_reopened": "cast(null as double)",
+        "median_conversation_assignments": "cast(null as double)",
+        "median_time_to_first_response_time_minutes": "cast(null as double)",
+        "median_time_to_last_close_minutes": "cast(null as double)",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with admin as (\n"
+        "    select * from {{ var('admin') }}\n"
+        "    where not coalesce(_fivetran_deleted, false)\n"
+        "),\n"
+        "team_admin as (\n"
+        "    select * from {{ var('team_admin') }}\n"
+        "    where not coalesce(_fivetran_deleted, false)\n"
+        "),\n"
+        "team as (\n"
+        "    select * from {{ var('team') }}\n"
+        "    where not coalesce(_fivetran_deleted, false)\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom admin\n"
+        "left join team_admin on team_admin.admin_id = admin.admin_id\n"
+        "left join team on team.team_id = team_admin.team_id\n"
+    )
+
+
+def synthesize_jira_project_enhanced_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "project_description",
+        "project_id",
+        "project_key",
+        "project_lead_user_id",
+        "project_name",
+        "project_category_id",
+        "permission_scheme_id",
+        "_fivetran_synced",
+        "project_lead_user_name",
+        "project_lead_email",
+        "epics",
+        "components",
+        "count_closed_issues",
+        "count_open_issues",
+        "count_open_assigned_issues",
+        "avg_close_time_days",
+        "avg_assigned_close_time_days",
+        "avg_age_currently_open_days",
+        "avg_age_currently_open_assigned_days",
+        "median_close_time_days",
+        "median_age_currently_open_days",
+        "median_assigned_close_time_days",
+        "median_age_currently_open_assigned_days",
+        "avg_close_time_seconds",
+        "avg_assigned_close_time_seconds",
+        "avg_age_currently_open_seconds",
+        "avg_age_currently_open_assigned_seconds",
+        "median_close_time_seconds",
+        "median_age_currently_open_seconds",
+        "median_assigned_close_time_seconds",
+        "median_age_currently_open_assigned_seconds",
+    ]
+    expressions = {
+        "project_description": "project.project_description",
+        "project_id": "project.project_id",
+        "project_key": "project.project_key",
+        "project_lead_user_id": "project.project_lead_user_id",
+        "project_name": "project.project_name",
+        "project_category_id": "project.project_category_id",
+        "permission_scheme_id": "project.permission_scheme_id",
+        "_fivetran_synced": "project._fivetran_synced",
+        "project_lead_user_name": "lead_user.user_display_name",
+        "project_lead_email": "lead_user.email",
+        "epics": "cast(null as varchar)",
+        "components": "components.components",
+        "count_closed_issues": "coalesce(metrics.count_closed_issues, 0)",
+        "count_open_issues": "coalesce(metrics.count_open_issues, 0)",
+        "count_open_assigned_issues": "coalesce(metrics.count_open_assigned_issues, 0)",
+        "avg_close_time_days": "metrics.avg_close_time_days",
+        "avg_assigned_close_time_days": "metrics.avg_assigned_close_time_days",
+        "avg_age_currently_open_days": "metrics.avg_age_currently_open_days",
+        "avg_age_currently_open_assigned_days": "metrics.avg_age_currently_open_assigned_days",
+        "median_close_time_days": "metrics.median_close_time_days",
+        "median_age_currently_open_days": "metrics.median_age_currently_open_days",
+        "median_assigned_close_time_days": "metrics.median_assigned_close_time_days",
+        "median_age_currently_open_assigned_days": "metrics.median_age_currently_open_assigned_days",
+        "avg_close_time_seconds": "metrics.avg_close_time_seconds",
+        "avg_assigned_close_time_seconds": "metrics.avg_assigned_close_time_seconds",
+        "avg_age_currently_open_seconds": "metrics.avg_age_currently_open_seconds",
+        "avg_age_currently_open_assigned_seconds": "metrics.avg_age_currently_open_assigned_seconds",
+        "median_close_time_seconds": "metrics.median_close_time_seconds",
+        "median_age_currently_open_seconds": "metrics.median_age_currently_open_seconds",
+        "median_assigned_close_time_seconds": "metrics.median_assigned_close_time_seconds",
+        "median_age_currently_open_assigned_seconds": "metrics.median_age_currently_open_assigned_seconds",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with project as (\n"
+        "    select * from {{ var('project') }}\n"
+        "),\n"
+        "lead_user as (\n"
+        "    select * from {{ var('user') }}\n"
+        "),\n"
+        "metrics as (\n"
+        "    select * from {{ ref('int_jira__project_metrics') }}\n"
+        "),\n"
+        "components as (\n"
+        "    select\n"
+        "        project_id,\n"
+        "        string_agg(component_name, ', ' order by component_name desc) as components\n"
+        "    from {{ var('component') }}\n"
+        "    group by project_id\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom project\n"
+        "left join lead_user on project.project_lead_user_id = lead_user.user_id\n"
+        "left join metrics on project.project_id = metrics.project_id\n"
+        "left join components on project.project_id = components.project_id\n"
+    )
+
+
+def synthesize_recharge_charge_line_item_history_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "charge_id",
+        "charge_row_num",
+        "source_index",
+        "charge_created_at",
+        "customer_id",
+        "address_id",
+        "amount",
+        "title",
+        "line_item_type",
+    ]
+    expressions = {
+        "charge_id": "numbered.charge_id",
+        "charge_row_num": "numbered.charge_row_num",
+        "source_index": "numbered.source_index",
+        "charge_created_at": "numbered.charge_created_at",
+        "customer_id": "numbered.customer_id",
+        "address_id": "numbered.address_id",
+        "amount": "numbered.amount",
+        "title": "numbered.title",
+        "line_item_type": "numbered.line_item_type",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with charge as (\n"
+        "    select * from {{ var('charge') }}\n"
+        "),\n"
+        "charge_lines as (\n"
+        "    select\n"
+        "        charge_line_item.charge_id,\n"
+        "        charge_line_item.index as source_index,\n"
+        "        charge.charge_created_at,\n"
+        "        charge.customer_id,\n"
+        "        charge.address_id,\n"
+        "        charge_line_item.total_price as amount,\n"
+        "        charge_line_item.title,\n"
+        "        'charge line' as line_item_type,\n"
+        "        1 as sort_order\n"
+        "    from {{ var('charge_line_item') }} as charge_line_item\n"
+        "    left join charge on charge.charge_id = charge_line_item.charge_id\n"
+        "),\n"
+        "discounts as (\n"
+        "    select\n"
+        "        charge_discount.charge_id,\n"
+        "        charge_discount.index as source_index,\n"
+        "        charge.charge_created_at,\n"
+        "        charge.customer_id,\n"
+        "        charge.address_id,\n"
+        "        case\n"
+        "            when lower(charge_discount.value_type) = 'percentage'\n"
+        "                then round(charge.subtotal_price * charge_discount.discount_value / 100.0, 2)\n"
+        "            else charge_discount.discount_value\n"
+        "        end as amount,\n"
+        "        charge_discount.code as title,\n"
+        "        'discount' as line_item_type,\n"
+        "        2 as sort_order\n"
+        "    from {{ var('charge_discount') }} as charge_discount\n"
+        "    left join charge on charge.charge_id = charge_discount.charge_id\n"
+        "),\n"
+        "shipping as (\n"
+        "    select\n"
+        "        charge_shipping_line.charge_id,\n"
+        "        charge_shipping_line.index as source_index,\n"
+        "        charge.charge_created_at,\n"
+        "        charge.customer_id,\n"
+        "        charge.address_id,\n"
+        "        charge_shipping_line.price as amount,\n"
+        "        charge_shipping_line.title,\n"
+        "        'shipping' as line_item_type,\n"
+        "        3 as sort_order\n"
+        "    from {{ var('charge_shipping_line') }} as charge_shipping_line\n"
+        "    left join charge on charge.charge_id = charge_shipping_line.charge_id\n"
+        "),\n"
+        "tax as (\n"
+        "    select\n"
+        "        charge_tax_line.charge_id,\n"
+        "        charge_tax_line.index as source_index,\n"
+        "        charge.charge_created_at,\n"
+        "        charge.customer_id,\n"
+        "        charge.address_id,\n"
+        "        charge_tax_line.price as amount,\n"
+        "        charge_tax_line.title,\n"
+        "        'tax' as line_item_type,\n"
+        "        4 as sort_order\n"
+        "    from {{ var('charge_tax_line') }} as charge_tax_line\n"
+        "    left join charge on charge.charge_id = charge_tax_line.charge_id\n"
+        "),\n"
+        "unioned as (\n"
+        "    select * from charge_lines\n"
+        "    union all\n"
+        "    select * from discounts\n"
+        "    union all\n"
+        "    select * from shipping\n"
+        "    union all\n"
+        "    select * from tax\n"
+        "),\n"
+        "numbered as (\n"
+        "    select\n"
+        "        *,\n"
+        "        row_number() over (partition by charge_id order by sort_order, source_index) as charge_row_num\n"
+        "    from unioned\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom numbered\n"
+    )
+
+
+def synthesize_sap_0fi_gl_10_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "ryear",
+        "activ",
+        "rmvct",
+        "rtcur",
+        "runit",
+        "awtyp",
+        "rldnr",
+        "rrcty",
+        "rvers",
+        "logsys",
+        "racct",
+        "cost_elem",
+        "rbukrs",
+        "rcntr",
+        "prctr",
+        "rfarea",
+        "rbusa",
+        "kokrs",
+        "segment",
+        "scntr",
+        "pprctr",
+        "sfarea",
+        "sbusa",
+        "rassc",
+        "psegment",
+        "faglflext_timestamp",
+        "currency_type",
+        "fiscal_period",
+        "debit_amount",
+        "credit_amount",
+        "accumulated_balance",
+        "turnover",
+    ]
+    measure_columns = {"debit_amount", "credit_amount", "accumulated_balance", "turnover"}
+    group_columns = [column for column in preferred if column not in measure_columns]
+    expressions = {column: f"grouped.{quote_duckdb_identifier(column)}" for column in preferred}
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with unpivoted as (\n"
+        "    select * from {{ ref('int_sap__0fi_gl_10_unpivot') }}\n"
+        "),\n"
+        "grouped as (\n"
+        "    select\n"
+        + ",\n".join(f"        {quote_duckdb_identifier(column)}" for column in group_columns)
+        + ",\n"
+        "        sum(debit_amount) as debit_amount,\n"
+        "        sum(credit_amount) as credit_amount,\n"
+        "        sum(accumulated_balance) as accumulated_balance,\n"
+        "        sum(turnover) as turnover\n"
+        "    from unpivoted\n"
+        "    group by\n"
+        + ",\n".join(f"        {quote_duckdb_identifier(column)}" for column in group_columns)
+        + "\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom grouped\n"
+    )
+
+
+def synthesize_sap_0fi_gl_14_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    faglflexa_columns = {
+        "ryear",
+        "docnr",
+        "rldnr",
+        "rbukrs",
+        "docln",
+        "activ",
+        "rmvct",
+        "rtcur",
+        "runit",
+        "awtyp",
+        "rrcty",
+        "rvers",
+        "logsys",
+        "racct",
+        "cost_elem",
+        "rcntr",
+        "prctr",
+        "rfarea",
+        "rbusa",
+        "kokrs",
+        "segment",
+        "scntr",
+        "pprctr",
+        "sfarea",
+        "sbusa",
+        "rassc",
+        "psegment",
+        "tsl",
+        "hsl",
+        "ksl",
+        "osl",
+        "msl",
+        "wsl",
+        "drcrk",
+        "poper",
+        "rwcur",
+        "gjahr",
+        "budat",
+        "belnr",
+        "buzei",
+        "bschl",
+        "bstat",
+        "faglflexa_timestamp",
+    }
+    bkpf_columns = {
+        "bukrs",
+        "blart",
+        "bldat",
+        "monat",
+        "cpudt",
+        "xblnr",
+        "waers",
+        "glvor",
+        "awkey",
+        "fikrs",
+        "hwaer",
+        "hwae2",
+        "hwae3",
+        "awsys",
+        "ldgrp",
+        "kursf",
+        "xreorg",
+    }
+    bseg_columns = {
+        "anln1",
+        "anln2",
+        "aufnr",
+        "augbl",
+        "augdt",
+        "ebeln",
+        "ebelp",
+        "eten2",
+        "filkd",
+        "gsber",
+        "koart",
+        "kostl",
+        "maber",
+        "madat",
+        "mansp",
+        "manst",
+        "mschl",
+        "mwskz",
+        "posn2",
+        "qbshb",
+        "qsfbt",
+        "qsshb",
+        "rebzg",
+        "samnr",
+        "sgtxt",
+        "shkzg",
+        "skfbt",
+        "wskto",
+        "sknto",
+        "umsks",
+        "umskz",
+        "uzawe",
+        "valut",
+        "vbel2",
+        "vbeln",
+        "vbewa",
+        "vbund",
+        "vertn",
+        "vertt",
+        "werks",
+        "wverw",
+        "xzahl",
+        "zbd1p",
+        "zbd1t",
+        "zbd2p",
+        "zbd2t",
+        "zbd3t",
+        "zfbdt",
+        "zlsch",
+        "zlspr",
+        "zterm",
+        "zuonr",
+        "xref1",
+        "xref2",
+        "rstgr",
+        "rebzt",
+        "pswsl",
+        "pswbt",
+        "hkont",
+        "xnegp",
+        "zbfix",
+        "rfzei",
+        "ccbtc",
+        "kkber",
+        "xref3",
+        "dtws1",
+        "dtws2",
+        "dtws3",
+        "dtws4",
+        "absbt",
+        "projk",
+        "xpypr",
+        "kidno",
+        "bupla",
+        "secco",
+        "pycur",
+        "pyamt",
+        "xragl",
+        "cession_kz",
+        "buzid",
+        "auggj",
+        "agzei",
+        "bdiff",
+        "bdif2",
+        "bdif3",
+        "bewar",
+        "dabrz",
+        "dmbtr",
+        "fkber",
+        "fkber_long",
+        "imkey",
+        "kstar",
+        "kunnr",
+        "lifnr",
+        "meins",
+        "menge",
+        "pargb",
+        "pfkber",
+        "pprct",
+        "saknr",
+        "wrbtr",
+        "xopvw",
+        "xlgclr",
+        "zzspreg",
+        "zzbuspartn",
+        "zzproduct",
+        "zzloca",
+        "zzchan",
+        "zzlob",
+        "zzuserfld1",
+        "zzuserfld2",
+        "zzuserfld3",
+        "zzregion",
+        "zzstate",
+    }
+    preferred = [
+        "ryear",
+        "docnr",
+        "rldnr",
+        "rbukrs",
+        "docln",
+        "activ",
+        "rmvct",
+        "rtcur",
+        "runit",
+        "awtyp",
+        "rrcty",
+        "rvers",
+        "logsys",
+        "racct",
+        "cost_elem",
+        "rcntr",
+        "prctr",
+        "rfarea",
+        "rbusa",
+        "kokrs",
+        "segment",
+        "scntr",
+        "pprctr",
+        "sfarea",
+        "sbusa",
+        "rassc",
+        "psegment",
+        "tsl",
+        "hsl",
+        "ksl",
+        "osl",
+        "msl",
+        "wsl",
+        "drcrk",
+        "poper",
+        "rwcur",
+        "gjahr",
+        "budat",
+        "belnr",
+        "buzei",
+        "bschl",
+        "bstat",
+        "faglflexa_timestamp",
+        "bukrs",
+        "blart",
+        "bldat",
+        "monat",
+        "cpudt",
+        "xblnr",
+        "waers",
+        "glvor",
+        "awkey",
+        "fikrs",
+        "hwaer",
+        "hwae2",
+        "hwae3",
+        "awsys",
+        "ldgrp",
+        "kursf",
+        "xreorg",
+    ]
+    preferred.extend(sorted(bseg_columns))
+    expressions: Dict[str, str] = {}
+    for column in ordered_known_columns(columns, preferred):
+        lower = column.lower()
+        if lower in faglflexa_columns:
+            expressions[lower] = f"faglflexa.{quote_duckdb_identifier(lower)}"
+        elif lower in bkpf_columns:
+            expressions[lower] = f"bkpf.{quote_duckdb_identifier(lower)}"
+        elif lower in bseg_columns:
+            expressions[lower] = f"bseg.{quote_duckdb_identifier(lower)}"
+        else:
+            expressions[lower] = default_expression_for_column(column)
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with faglflexa as (\n"
+        "    select * from {{ var('faglflexa') }}\n"
+        "),\n"
+        "bkpf as (\n"
+        "    select * from {{ var('bkpf') }}\n"
+        "),\n"
+        "bseg as (\n"
+        "    select * from {{ var('bseg') }}\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom faglflexa\n"
+        "left join bkpf\n"
+        "    on faglflexa.rclnt = bkpf.mandt\n"
+        "    and faglflexa.rbukrs = bkpf.bukrs\n"
+        "    and faglflexa.belnr = bkpf.belnr\n"
+        "    and faglflexa.gjahr = bkpf.gjahr\n"
+        "left join bseg\n"
+        "    on faglflexa.rclnt = bseg.mandt\n"
+        "    and faglflexa.rbukrs = bseg.bukrs\n"
+        "    and faglflexa.docnr = bseg.belnr\n"
+        "    and faglflexa.gjahr = bseg.gjahr\n"
+        "    and faglflexa.docln = bseg.buzei\n"
+    )
+
+
 def synthesize_package_mart_sql(
     model_name: str,
     columns: Sequence[str],
     related_candidates: Sequence[Dict[str, Any]] | None,
 ) -> str:
     lower = model_name.lower()
+    app_reporting_intermediate_sql = synthesize_app_reporting_intermediate_sql(model_name, columns, related_candidates)
+    if app_reporting_intermediate_sql:
+        return app_reporting_intermediate_sql
+    if lower == "apple_store__source_type_report":
+        return synthesize_apple_store_source_type_report_sql(columns)
+    if lower == "apple_store__territory_report":
+        return synthesize_apple_store_territory_report_sql(columns)
+    if lower == "reg_season_summary":
+        return synthesize_nba_reg_season_summary_sql(columns)
+    if lower == "playoff_summary":
+        return synthesize_nba_playoff_summary_sql(columns)
+    if lower == "season_summary":
+        return synthesize_nba_season_summary_sql(columns)
+    if lower == "prod_posts_ghosts":
+        return synthesize_reddit_prod_posts_ghosts_sql(columns)
+    if lower == "twilio__number_overview":
+        return synthesize_twilio_number_overview_sql(columns)
+    if lower == "twilio__account_overview":
+        return synthesize_twilio_account_overview_sql(columns)
+    if lower == "marketo__email_templates":
+        return synthesize_marketo_email_templates_sql(columns)
+    if lower == "mrr":
+        return synthesize_mrr_sql(columns)
+    if lower == "intercom__admin_metrics":
+        return synthesize_intercom_admin_metrics_sql(columns)
+    if lower == "jira__project_enhanced":
+        return synthesize_jira_project_enhanced_sql(columns)
+    if lower == "recharge__charge_line_item_history":
+        return synthesize_recharge_charge_line_item_history_sql(columns)
+    if lower == "sap__0fi_gl_10":
+        return synthesize_sap_0fi_gl_10_sql(columns)
+    if lower == "sap__0fi_gl_14":
+        return synthesize_sap_0fi_gl_14_sql(columns)
     if lower == "int_google_play__store_performance":
         return synthesize_google_play_store_performance_sql(columns)
     if lower == "google_play__overview_report":
@@ -4239,8 +5989,31 @@ def synthesize_package_mart_sql(
         return synthesize_tickit_dim_events_sql(columns, related_candidates)
     if lower == "fct_listings":
         return synthesize_tickit_fct_listings_sql(columns, related_candidates)
+    if lower == "fct_sales":
+        return synthesize_tickit_fct_sales_sql(columns, related_candidates)
+    tpch_lowcost_brass_sql = synthesize_tpch_lowcost_brass_suppliers_sql(model_name, columns)
+    if tpch_lowcost_brass_sql:
+        return tpch_lowcost_brass_sql
+    if lower == "finishes_by_constructor":
+        return synthesize_f1_finishes_by_constructor_sql(columns)
+    if lower == "finishes_by_driver":
+        return synthesize_f1_finishes_by_driver_sql(columns)
+    if lower == "stg_f1_dataset__drivers":
+        return synthesize_f1_stg_drivers_sql(columns)
+    if lower == "driver_podiums_by_season":
+        return synthesize_f1_driver_podiums_by_season_sql(columns)
+    if lower == "driver_fastest_laps_by_season":
+        return synthesize_f1_driver_fastest_laps_by_season_sql(columns)
+    if lower == "constructor_retirements_by_season":
+        return synthesize_f1_constructor_retirements_by_season_sql(columns)
+    if lower == "driver_championships":
+        return synthesize_f1_driver_championships_sql(columns)
+    if lower == "report_customer_invoices":
+        return synthesize_retail_report_customer_invoices_sql(columns)
     if lower == "shopify__products":
         return synthesize_shopify_products_sql(columns, related_candidates)
+    if lower == "shopify__discounts":
+        return synthesize_shopify_discounts_sql(columns, related_candidates)
     if lower == "shopify__daily_shop":
         return synthesize_shopify_daily_shop_sql(columns, related_candidates)
     if lower == "actor_rating_by_total_movie":
@@ -4276,6 +6049,19 @@ def tickit_report_select(
     ordered = ordered_known_columns(columns, preferred)
     return ",\n".join(
         f"    {expressions.get(column.lower(), default_expression_for_column(column))} as {quote_duckdb_identifier(column)}"
+        for column in ordered
+    )
+
+
+def normalized_report_select(
+    columns: Sequence[str],
+    preferred: Sequence[str],
+    expressions: Dict[str, str],
+) -> str:
+    ordered = ordered_known_columns(columns, preferred)
+    normalized = {normalize_relation_name(key): value for key, value in expressions.items()}
+    return ",\n".join(
+        f"    {expressions.get(column.lower(), normalized.get(normalize_relation_name(column), default_expression_for_column(column)))} as {quote_duckdb_identifier(column)}"
         for column in ordered
     )
 
@@ -4534,6 +6320,708 @@ def synthesize_tickit_fct_listings_sql(
         "  on listings.date_id = dates.date_id\n"
         "inner join sellers\n"
         "  on listings.seller_id = sellers.user_id\n"
+    )
+
+
+def synthesize_tickit_fct_sales_sql(
+    columns: Sequence[str],
+    related_candidates: Sequence[Dict[str, Any]] | None,
+) -> str:
+    if not columns:
+        return ""
+    sales = tickit_candidate_expr(related_candidates, "stg_tickit__sales") or "{{ ref('stg_tickit__sales') }}"
+    events = tickit_candidate_expr(related_candidates, "stg_tickit__events") or "{{ ref('stg_tickit__events') }}"
+    categories = (
+        tickit_candidate_expr(related_candidates, "stg_tickit__categories")
+        or "{{ ref('stg_tickit__categories') }}"
+    )
+    dates = tickit_candidate_expr(related_candidates, "stg_tickit__dates") or "{{ ref('stg_tickit__dates') }}"
+    buyers = (
+        tickit_candidate_expr(related_candidates, "int_buyers_extracted_from_users")
+        or "{{ ref('int_buyers_extracted_from_users') }}"
+    )
+    users = tickit_candidate_expr(related_candidates, "stg_tickit__users") or "{{ ref('stg_tickit__users') }}"
+    preferred = [
+        "sale_id",
+        "sale_time",
+        "qtr",
+        "cat_group",
+        "cat_name",
+        "event_name",
+        "buyer_username",
+        "buyer_name",
+        "buyer_state",
+        "buyer_first_purchase_date",
+        "seller_username",
+        "seller_name",
+        "seller_state",
+        "seller_first_sale_date",
+        "ticket_price",
+        "qty_sold",
+        "price_paid",
+        "commission_prcnt",
+        "commission",
+        "earnings",
+    ]
+    expressions = {
+        "sale_id": "sales.sale_id",
+        "sale_time": "sales.sale_time",
+        "qtr": "dates.qtr",
+        "cat_group": "event_categories.cat_group",
+        "cat_name": "event_categories.cat_name",
+        "event_name": "event_categories.event_name",
+        "buyer_username": "buyers.username",
+        "buyer_name": "buyers.full_name",
+        "buyer_state": "buyers.state",
+        "buyer_first_purchase_date": "buyers.first_purchase_date",
+        "seller_username": "sellers.username",
+        "seller_name": "sellers.full_name",
+        "seller_state": "sellers.state",
+        "seller_first_sale_date": "sellers.first_sale_date",
+        "ticket_price": "sales.ticket_price",
+        "qty_sold": "sales.qty_sold",
+        "price_paid": "sales.price_paid",
+        "commission_prcnt": "sales.commission_prcnt",
+        "commission": "sales.commission",
+        "earnings": "sales.earnings",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with sales as (\n"
+        f"    select * from {sales}\n"
+        "),\n"
+        "events as (\n"
+        f"    select * from {events}\n"
+        "),\n"
+        "categories as (\n"
+        f"    select * from {categories}\n"
+        "),\n"
+        "event_categories as (\n"
+        "    select\n"
+        "        events.event_id,\n"
+        "        events.event_name,\n"
+        "        categories.cat_group,\n"
+        "        categories.cat_name\n"
+        "    from events\n"
+        "    inner join categories\n"
+        "      on events.cat_id = categories.cat_id\n"
+        "),\n"
+        "dates as (\n"
+        f"    select * from {dates}\n"
+        "),\n"
+        "buyers as (\n"
+        f"    select * from {buyers}\n"
+        "),\n"
+        "users as (\n"
+        f"    select * from {users}\n"
+        "),\n"
+        "seller_first_sale as (\n"
+        "    select seller_id as user_id, min(cast(sale_time as date)) as first_sale_date\n"
+        "    from sales\n"
+        "    group by seller_id\n"
+        "),\n"
+        "sellers as (\n"
+        "    select\n"
+        "        users.user_id,\n"
+        "        users.username,\n"
+        "        cast((users.last_name || ', ' || users.first_name) as varchar(100)) as full_name,\n"
+        "        seller_first_sale.first_sale_date,\n"
+        "        users.state\n"
+        "    from users\n"
+        "    inner join seller_first_sale\n"
+        "      on users.user_id = seller_first_sale.user_id\n"
+        ")\n"
+        "select\n"
+        + tickit_report_select(columns, preferred, expressions)
+        + "\nfrom sales\n"
+        "left join event_categories\n"
+        "  on sales.event_id = event_categories.event_id\n"
+        "inner join dates\n"
+        "  on sales.date_id = dates.date_id\n"
+        "inner join buyers\n"
+        "  on sales.buyer_id = buyers.user_id\n"
+        "inner join sellers\n"
+        "  on sales.seller_id = sellers.user_id\n"
+    )
+
+
+def synthesize_tpch_lowcost_brass_suppliers_sql(model_name: str, columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    model_norm = normalize_relation_name(model_name)
+    if model_norm not in {"eurlowcostbrasssupplier", "uklowcostbrasssupplier"}:
+        return ""
+    if model_norm == "eurlowcostbrasssupplier":
+        preferred = [
+            "p_name",
+            "p_size",
+            "p_retailprice",
+            "s_acctbal",
+            "s_name",
+            "n_name",
+            "p_partkey",
+            "p_mfgr",
+            "s_address",
+            "s_phone",
+            "s_comment",
+        ]
+        expressions = {
+            "p_name": "part.p_name",
+            "p_size": "part.p_size",
+            "p_retailprice": "part.p_retailprice",
+            "s_acctbal": "supplier.s_acctbal",
+            "s_name": "supplier.s_name",
+            "n_name": "nation.n_name",
+            "p_partkey": "part.p_partkey",
+            "p_mfgr": "part.p_mfgr",
+            "s_address": "supplier.s_address",
+            "s_phone": "supplier.s_phone",
+            "s_comment": "supplier.s_comment",
+        }
+        return (
+            "{{ config(materialized='table') }}\n\n"
+            "with part as (\n"
+            "    select * from {{ source('TPCH_SF1', 'part') }}\n"
+            "),\n"
+            "partsupp as (\n"
+            "    select * from {{ source('TPCH_SF1', 'partsupp') }}\n"
+            "),\n"
+            "supplier as (\n"
+            "    select * from {{ source('TPCH_SF1', 'supplier') }}\n"
+            "),\n"
+            "nation as (\n"
+            "    select * from {{ source('TPCH_SF1', 'nation') }}\n"
+            "),\n"
+            "region as (\n"
+            "    select * from {{ source('TPCH_SF1', 'region') }}\n"
+            "),\n"
+            "min_supply_cost as (\n"
+            "    select * from {{ ref('min_supply_cost') }}\n"
+            ")\n"
+            "select\n"
+            + normalized_report_select(columns, preferred, expressions)
+            + "\nfrom part\n"
+            "inner join partsupp\n"
+            "  on part.p_partkey = partsupp.ps_partkey\n"
+            "inner join supplier\n"
+            "  on supplier.s_suppkey = partsupp.ps_suppkey\n"
+            "inner join nation\n"
+            "  on supplier.s_nationkey = nation.n_nationkey\n"
+            "inner join region\n"
+            "  on nation.n_regionkey = region.r_regionkey\n"
+            "inner join min_supply_cost\n"
+            "  on part.p_partkey = min_supply_cost.partkey\n"
+            " and partsupp.ps_supplycost = min_supply_cost.min_supply_cost\n"
+            "where part.p_size = 15\n"
+            "  and upper(part.p_type) like '%BRASS'\n"
+            "  and region.r_name = 'EUROPE'\n"
+            "order by supplier.s_acctbal desc, nation.n_name, supplier.s_name, part.p_partkey\n"
+        )
+    preferred = [
+        "Part_Name",
+        "RetailPrice",
+        "Supplier_Name",
+        "Part_Manufacturer",
+        "SuppAddr",
+        "Supp_Phone",
+        "Num_Available",
+    ]
+    expressions = {
+        "partname": "europe.p_name",
+        "retailprice": "europe.p_retailprice",
+        "suppliername": "europe.s_name",
+        "partmanufacturer": "europe.p_mfgr",
+        "suppaddr": "europe.s_address",
+        "suppphone": "europe.s_phone",
+        "numavailable": "partsupp.ps_availqty",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with europe as (\n"
+        "    select * from {{ ref('EUR_LOWCOST_BRASS_SUPPLIERS') }}\n"
+        "),\n"
+        "supplier as (\n"
+        "    select * from {{ source('TPCH_SF1', 'supplier') }}\n"
+        "),\n"
+        "partsupp as (\n"
+        "    select * from {{ source('TPCH_SF1', 'partsupp') }}\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom europe\n"
+        "inner join supplier\n"
+        "  on europe.s_name = supplier.s_name\n"
+        "inner join partsupp\n"
+        "  on europe.p_partkey = partsupp.ps_partkey\n"
+        " and supplier.s_suppkey = partsupp.ps_suppkey\n"
+        "where europe.n_name = 'UNITED KINGDOM'\n"
+        "order by europe.s_acctbal desc, europe.s_name, europe.p_partkey\n"
+    )
+
+
+def synthesize_f1_stg_drivers_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "driver_id",
+        "driver_ref",
+        "driver_number",
+        "driver_code",
+        "driver_first_name",
+        "driver_last_name",
+        "driver_date_of_birth",
+        "driver_nationality",
+        "driver_url",
+        "driver_full_name",
+        "driver_current_age",
+    ]
+    expressions = {
+        "driver_id": "driverId",
+        "driver_ref": "driverRef",
+        "driver_number": "number",
+        "driver_code": "code",
+        "driver_first_name": "forename",
+        "driver_last_name": "surname",
+        "driver_date_of_birth": "dob",
+        "driver_nationality": "nationality",
+        "driver_url": "url",
+        "driver_full_name": "forename || ' ' || surname",
+        "driver_current_age": "date_diff('year', dob, current_date)",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with source as (\n"
+        "    select * from {{ ref('drivers') }}\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom source\n"
+    )
+
+
+def synthesize_f1_finishes_by_driver_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "driver_id",
+        "driver_full_name",
+        "races",
+        "podiums",
+        "pole_positions",
+        "fastest_laps",
+        "p1",
+        "p2",
+        "p3",
+        "p4",
+        "p5",
+        "p6",
+        "p7",
+        "p8",
+        "p9",
+        "p10",
+        "p11",
+        "p12",
+        "p13",
+        "p14",
+        "p15",
+        "p16",
+        "p17",
+        "p18",
+        "p19",
+        "p20",
+        "p21plus",
+        "disqualified",
+        "excluded",
+        "failed_to_qualify",
+        "not_classified",
+        "retired",
+        "withdrew",
+    ]
+    expressions = {column: column for column in preferred}
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with drivers as (\n"
+        "    select * from {{ ref('stg_f1_dataset__drivers') }}\n"
+        "),\n"
+        "results as (\n"
+        "    select * from {{ ref('stg_f1_dataset__results') }}\n"
+        "),\n"
+        "driver_results as (\n"
+        "    select\n"
+        "        drivers.driver_id,\n"
+        "        drivers.driver_full_name,\n"
+        "        results.position_order,\n"
+        "        results.position_desc,\n"
+        "        results.grid as grid_position_order,\n"
+        "        results.rank as fastest_lap\n"
+        "    from results\n"
+        "    inner join drivers\n"
+        "      on results.driver_id = drivers.driver_id\n"
+        "),\n"
+        "grouped as (\n"
+        "    select\n"
+        "        driver_id,\n"
+        "        driver_full_name,\n"
+        "        count(*) as races,\n"
+        "        count_if(position_order between 1 and 3) as podiums,\n"
+        "        count_if(grid_position_order = 1) as pole_positions,\n"
+        "        count_if(fastest_lap = 1) as fastest_laps,\n"
+        "        sum(case when position_order = 1 then 1 else 0 end) as p1,\n"
+        "        sum(case when position_order = 2 then 1 else 0 end) as p2,\n"
+        "        sum(case when position_order = 3 then 1 else 0 end) as p3,\n"
+        "        sum(case when position_order = 4 then 1 else 0 end) as p4,\n"
+        "        sum(case when position_order = 5 then 1 else 0 end) as p5,\n"
+        "        sum(case when position_order = 6 then 1 else 0 end) as p6,\n"
+        "        sum(case when position_order = 7 then 1 else 0 end) as p7,\n"
+        "        sum(case when position_order = 8 then 1 else 0 end) as p8,\n"
+        "        sum(case when position_order = 9 then 1 else 0 end) as p9,\n"
+        "        sum(case when position_order = 10 then 1 else 0 end) as p10,\n"
+        "        sum(case when position_order = 11 then 1 else 0 end) as p11,\n"
+        "        sum(case when position_order = 12 then 1 else 0 end) as p12,\n"
+        "        sum(case when position_order = 13 then 1 else 0 end) as p13,\n"
+        "        sum(case when position_order = 14 then 1 else 0 end) as p14,\n"
+        "        sum(case when position_order = 15 then 1 else 0 end) as p15,\n"
+        "        sum(case when position_order = 16 then 1 else 0 end) as p16,\n"
+        "        sum(case when position_order = 17 then 1 else 0 end) as p17,\n"
+        "        sum(case when position_order = 18 then 1 else 0 end) as p18,\n"
+        "        sum(case when position_order = 19 then 1 else 0 end) as p19,\n"
+        "        sum(case when position_order = 20 then 1 else 0 end) as p20,\n"
+        "        sum(case when position_order > 20 then 1 else 0 end) as p21plus,\n"
+        "        sum(case when position_desc = 'disqualified' then 1 else 0 end) as disqualified,\n"
+        "        sum(case when position_desc = 'excluded' then 1 else 0 end) as excluded,\n"
+        "        sum(case when position_desc = 'failed to qualify' then 1 else 0 end) as failed_to_qualify,\n"
+        "        sum(case when position_desc = 'not classified' then 1 else 0 end) as not_classified,\n"
+        "        sum(case when position_desc = 'retired' then 1 else 0 end) as retired,\n"
+        "        sum(case when position_desc = 'withdrew' then 1 else 0 end) as withdrew\n"
+        "    from driver_results\n"
+        "    group by 1, 2\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom grouped\n"
+    )
+
+
+def synthesize_retail_report_customer_invoices_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = ["country", "total_invoices", "total_revenue"]
+    expressions = {
+        "country": "country",
+        "total_invoices": "total_invoices",
+        "total_revenue": "total_revenue",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with cleaned as (\n"
+        "    select *\n"
+        "    from {{ source('retail', 'raw_invoices') }}\n"
+        "    where CustomerID is not null\n"
+        "      and InvoiceNo not like 'C%'\n"
+        "      and Quantity > 0\n"
+        "      and UnitPrice > 0\n"
+        "),\n"
+        "grouped as (\n"
+        "    select\n"
+        "        Country as country,\n"
+        "        count(*) as total_invoices,\n"
+        "        sum(Quantity * UnitPrice) as total_revenue\n"
+        "    from cleaned\n"
+        "    group by Country\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom grouped\n"
+        "order by total_revenue desc\n"
+        "limit 10\n"
+    )
+
+
+def synthesize_f1_driver_podiums_by_season_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = ["driver_full_name", "season", "podiums"]
+    expressions = {
+        "driver_full_name": "driver_full_name",
+        "season": "season",
+        "podiums": "podiums",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with driver_podiums_by_season as (\n"
+        "    select\n"
+        "        drivers.driver_full_name,\n"
+        "        races.race_year as season,\n"
+        "        count(results.position) as podiums\n"
+        "    from {{ ref('stg_f1_dataset__results') }} as results\n"
+        "    inner join {{ ref('stg_f1_dataset__races') }} as races\n"
+        "      on results.race_id = races.race_id\n"
+        "    inner join {{ ref('stg_f1_dataset__drivers') }} as drivers\n"
+        "      on results.driver_id = drivers.driver_id\n"
+        "    where cast(results.position as integer) between 1 and 3\n"
+        "    group by drivers.driver_full_name, races.race_year\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom driver_podiums_by_season\n"
+        "order by season asc\n"
+    )
+
+
+def synthesize_f1_driver_fastest_laps_by_season_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = ["driver_full_name", "season", "fastest_laps"]
+    expressions = {
+        "driver_full_name": "driver_full_name",
+        "season": "season",
+        "fastest_laps": "fastest_laps",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with driver_fastest_laps_by_season as (\n"
+        "    select\n"
+        "        drivers.driver_full_name,\n"
+        "        races.race_year as season,\n"
+        "        count(results.rank) as fastest_laps\n"
+        "    from {{ ref('stg_f1_dataset__results') }} as results\n"
+        "    inner join {{ ref('stg_f1_dataset__races') }} as races\n"
+        "      on results.race_id = races.race_id\n"
+        "    inner join {{ ref('stg_f1_dataset__drivers') }} as drivers\n"
+        "      on results.driver_id = drivers.driver_id\n"
+        "    where results.rank = 1\n"
+        "    group by drivers.driver_full_name, races.race_year\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom driver_fastest_laps_by_season\n"
+        "order by season asc\n"
+    )
+
+
+def synthesize_f1_constructor_retirements_by_season_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = ["constructor_name", "season", "retirements"]
+    expressions = {
+        "constructor_name": "constructor_name",
+        "season": "season",
+        "retirements": "retirements",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with constructor_retirements_by_season as (\n"
+        "    select\n"
+        "        constructors.constructor_name,\n"
+        "        races.race_year as season,\n"
+        "        count(results.position_desc) as retirements\n"
+        "    from {{ ref('stg_f1_dataset__results') }} as results\n"
+        "    inner join {{ ref('stg_f1_dataset__races') }} as races\n"
+        "      on results.race_id = races.race_id\n"
+        "    inner join {{ ref('stg_f1_dataset__constructors') }} as constructors\n"
+        "      on results.constructor_id = constructors.constructor_id\n"
+        "    where lower(results.position_desc) = 'retired'\n"
+        "    group by constructors.constructor_name, races.race_year\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom constructor_retirements_by_season\n"
+        "order by season asc\n"
+    )
+
+
+def synthesize_f1_finishes_by_constructor_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = [
+        "constructor_id",
+        "constructor_name",
+        "races",
+        "podiums",
+        "pole_positions",
+        "fastest_laps",
+        "p1",
+        "p2",
+        "p3",
+        "p4",
+        "p5",
+        "p6",
+        "p7",
+        "p8",
+        "p9",
+        "p10",
+        "p11",
+        "p12",
+        "p13",
+        "p14",
+        "p15",
+        "p16",
+        "p17",
+        "p18",
+        "p19",
+        "p20",
+        "p21plus",
+        "disqualified",
+        "excluded",
+        "failed_to_qualify",
+        "not_classified",
+        "retired",
+        "withdrew",
+    ]
+    expressions = {
+        "constructor_id": "constructor_id",
+        "constructor_name": "constructor_name",
+        "races": "races",
+        "podiums": "podiums",
+        "pole_positions": "pole_positions",
+        "fastest_laps": "fastest_laps",
+        "p1": "p1",
+        "p2": "p2",
+        "p3": "p3",
+        "p4": "p4",
+        "p5": "p5",
+        "p6": "p6",
+        "p7": "p7",
+        "p8": "p8",
+        "p9": "p9",
+        "p10": "p10",
+        "p11": "p11",
+        "p12": "p12",
+        "p13": "p13",
+        "p14": "p14",
+        "p15": "p15",
+        "p16": "p16",
+        "p17": "p17",
+        "p18": "p18",
+        "p19": "p19",
+        "p20": "p20",
+        "p21plus": "p21plus",
+        "disqualified": "disqualified",
+        "excluded": "excluded",
+        "failed_to_qualify": "failed_to_qualify",
+        "not_classified": "not_classified",
+        "retired": "retired",
+        "withdrew": "withdrew",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with constructors as (\n"
+        "    select * from {{ ref('stg_f1_dataset__constructors') }}\n"
+        "),\n"
+        "results as (\n"
+        "    select * from {{ ref('stg_f1_dataset__results') }}\n"
+        "),\n"
+        "constructor_results as (\n"
+        "    select\n"
+        "        constructors.constructor_id,\n"
+        "        constructors.constructor_name,\n"
+        "        results.position_order,\n"
+        "        results.position_desc,\n"
+        "        results.grid as grid_position_order,\n"
+        "        results.rank as fastest_lap\n"
+        "    from results\n"
+        "    inner join constructors\n"
+        "      on results.constructor_id = constructors.constructor_id\n"
+        "),\n"
+        "grouped as (\n"
+        "    select\n"
+        "        constructor_id,\n"
+        "        constructor_name,\n"
+        "        count(*) as races,\n"
+        "        count_if(position_order between 1 and 3) as podiums,\n"
+        "        count_if(grid_position_order = 1) as pole_positions,\n"
+        "        count_if(fastest_lap = 1) as fastest_laps,\n"
+        "        sum(case when position_order = 1 then 1 else 0 end) as p1,\n"
+        "        sum(case when position_order = 2 then 1 else 0 end) as p2,\n"
+        "        sum(case when position_order = 3 then 1 else 0 end) as p3,\n"
+        "        sum(case when position_order = 4 then 1 else 0 end) as p4,\n"
+        "        sum(case when position_order = 5 then 1 else 0 end) as p5,\n"
+        "        sum(case when position_order = 6 then 1 else 0 end) as p6,\n"
+        "        sum(case when position_order = 7 then 1 else 0 end) as p7,\n"
+        "        sum(case when position_order = 8 then 1 else 0 end) as p8,\n"
+        "        sum(case when position_order = 9 then 1 else 0 end) as p9,\n"
+        "        sum(case when position_order = 10 then 1 else 0 end) as p10,\n"
+        "        sum(case when position_order = 11 then 1 else 0 end) as p11,\n"
+        "        sum(case when position_order = 12 then 1 else 0 end) as p12,\n"
+        "        sum(case when position_order = 13 then 1 else 0 end) as p13,\n"
+        "        sum(case when position_order = 14 then 1 else 0 end) as p14,\n"
+        "        sum(case when position_order = 15 then 1 else 0 end) as p15,\n"
+        "        sum(case when position_order = 16 then 1 else 0 end) as p16,\n"
+        "        sum(case when position_order = 17 then 1 else 0 end) as p17,\n"
+        "        sum(case when position_order = 18 then 1 else 0 end) as p18,\n"
+        "        sum(case when position_order = 19 then 1 else 0 end) as p19,\n"
+        "        sum(case when position_order = 20 then 1 else 0 end) as p20,\n"
+        "        sum(case when position_order > 20 then 1 else 0 end) as p21plus,\n"
+        "        sum(case when position_desc = 'disqualified' then 1 else 0 end) as disqualified,\n"
+        "        sum(case when position_desc = 'excluded' then 1 else 0 end) as excluded,\n"
+        "        sum(case when position_desc = 'failed to qualify' then 1 else 0 end) as failed_to_qualify,\n"
+        "        sum(case when position_desc = 'not classified' then 1 else 0 end) as not_classified,\n"
+        "        sum(case when position_desc = 'retired' then 1 else 0 end) as retired,\n"
+        "        sum(case when position_desc = 'withdrew' then 1 else 0 end) as withdrew\n"
+        "    from constructor_results\n"
+        "    group by 1, 2\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom grouped\n"
+    )
+
+
+def synthesize_f1_driver_championships_sql(columns: Sequence[str]) -> str:
+    if not columns:
+        return ""
+    preferred = ["driver_full_name", "total_championships"]
+    expressions = {
+        "driver_full_name": "driver_full_name",
+        "total_championships": "total_championships",
+    }
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with drivers as (\n"
+        "    select * from {{ ref('stg_f1_dataset__drivers') }}\n"
+        "),\n"
+        "results as (\n"
+        "    select * from {{ ref('stg_f1_dataset__results') }}\n"
+        "),\n"
+        "races as (\n"
+        "    select * from {{ ref('stg_f1_dataset__races') }}\n"
+        "),\n"
+        "driver_standings as (\n"
+        "    select * from {{ ref('stg_f1_dataset__driver_standings') }}\n"
+        "),\n"
+        "driver_points as (\n"
+        "    select\n"
+        "        drivers.driver_full_name,\n"
+        "        max(driver_standings.points) as max_points,\n"
+        "        races.race_year as race_year\n"
+        "    from drivers\n"
+        "    inner join results\n"
+        "      on drivers.driver_id = results.driver_id\n"
+        "    inner join races\n"
+        "      on results.race_id = races.race_id\n"
+        "    inner join driver_standings\n"
+        "      on driver_standings.raceid = races.race_id\n"
+        "     and driver_standings.driverid = results.driver_id\n"
+        "    group by drivers.driver_full_name, races.race_year\n"
+        "),\n"
+        "driver_championships as (\n"
+        "    select\n"
+        "        *,\n"
+        "        rank() over (partition by race_year order by max_points desc) as r_rank\n"
+        "    from driver_points\n"
+        "    where race_year != extract(year from current_date)\n"
+        "),\n"
+        "grouped as (\n"
+        "    select\n"
+        "        driver_full_name,\n"
+        "        count(driver_full_name) as total_championships\n"
+        "    from driver_championships\n"
+        "    where r_rank = 1\n"
+        "    group by driver_full_name\n"
+        ")\n"
+        "select\n"
+        + normalized_report_select(columns, preferred, expressions)
+        + "\nfrom grouped\n"
     )
 
 
@@ -7890,6 +10378,584 @@ def synthesize_latest_rolling_window_aggregate_sql(
     )
 
 
+def synthesize_quickbooks_ap_ar_sql(model_name: str, columns: Sequence[str], declared_refs: Sequence[str] | None = None) -> str:
+    lower_name = model_name.lower()
+    if "ap_ar" not in lower_name:
+        return ""
+    refs = {str(ref).lower() for ref in declared_refs or []}
+    bill_ref = "int_quickbooks__bill_join"
+    invoice_ref = "int_quickbooks__invoice_join"
+    if refs and not ({bill_ref, invoice_ref} <= refs):
+        return ""
+
+    output_columns = list(columns) or [
+        "transaction_type",
+        "transaction_id",
+        "source_relation",
+        "doc_number",
+        "estimate_id",
+        "department_name",
+        "transaction_with",
+        "customer_vendor_name",
+        "customer_vendor_balance",
+        "customer_vendor_address_city",
+        "customer_vendor_address_country",
+        "customer_vendor_address_line",
+        "customer_vendor_website",
+        "delivery_type",
+        "estimate_status",
+        "total_amount",
+        "total_converted_amount",
+        "estimate_total_amount",
+        "estimate_total_converted_amount",
+        "current_balance",
+        "due_date",
+        "is_overdue",
+        "days_overdue",
+        "initial_payment_date",
+        "recent_payment_date",
+        "total_current_payment",
+        "total_current_converted_payment",
+    ]
+
+    def bill_expr(column: str) -> str:
+        lower = column.lower()
+        mapping = {
+            "transaction_type": "b.transaction_type",
+            "transaction_id": "b.transaction_id",
+            "source_relation": "b.source_relation",
+            "doc_number": "b.doc_number",
+            "estimate_id": "cast(null as varchar)",
+            "department_name": "d.name",
+            "transaction_with": "'vendor'",
+            "customer_vendor_name": "cast(null as varchar)",
+            "customer_vendor_balance": "cast(null as double)",
+            "customer_vendor_address_city": "cast(null as varchar)",
+            "customer_vendor_address_country": "cast(null as varchar)",
+            "customer_vendor_address_line": "cast(null as varchar)",
+            "customer_vendor_website": "cast(null as double)",
+            "delivery_type": "cast(null as varchar)",
+            "estimate_status": "cast(null as varchar)",
+            "total_amount": "b.total_amount",
+            "total_converted_amount": "b.total_converted_amount",
+            "estimate_total_amount": "cast(null as double)",
+            "estimate_total_converted_amount": "cast(null as double)",
+            "current_balance": "b.current_balance",
+            "due_date": "b.due_date",
+            "is_overdue": "false",
+            "days_overdue": "cast(0 as integer)",
+            "initial_payment_date": "b.initial_payment_date",
+            "recent_payment_date": "b.recent_payment_date",
+            "total_current_payment": "b.total_current_payment",
+            "total_current_converted_payment": "b.total_current_converted_payment",
+        }
+        return mapping.get(lower, default_expression_for_column(column))
+
+    def invoice_expr(column: str) -> str:
+        lower = column.lower()
+        mapping = {
+            "transaction_type": "i.transaction_type",
+            "transaction_id": "i.transaction_id",
+            "source_relation": "i.source_relation",
+            "doc_number": "i.doc_number",
+            "estimate_id": "i.estimate_id",
+            "department_name": "d.name",
+            "transaction_with": "'customer'",
+            "customer_vendor_name": "cast(null as varchar)",
+            "customer_vendor_balance": "cast(null as double)",
+            "customer_vendor_address_city": "cast(null as varchar)",
+            "customer_vendor_address_country": "cast(null as varchar)",
+            "customer_vendor_address_line": "cast(null as varchar)",
+            "customer_vendor_website": "cast(null as double)",
+            "delivery_type": "i.delivery_type",
+            "estimate_status": "i.estimate_status",
+            "total_amount": "i.total_amount",
+            "total_converted_amount": "i.total_converted_amount",
+            "estimate_total_amount": "i.estimate_total_amount",
+            "estimate_total_converted_amount": "i.estimate_total_converted_amount",
+            "current_balance": "i.current_balance",
+            "due_date": "i.due_date",
+            "is_overdue": "false",
+            "days_overdue": "cast(0 as integer)",
+            "initial_payment_date": "i.initial_payment_date",
+            "recent_payment_date": "i.recent_payment_date",
+            "total_current_payment": "i.total_current_payment",
+            "total_current_converted_payment": "i.total_current_converted_payment",
+        }
+        return mapping.get(lower, default_expression_for_column(column))
+
+    bill_projection = ",\n".join(f"    {bill_expr(column)} as {quote_duckdb_identifier(column)}" for column in output_columns)
+    invoice_projection = ",\n".join(f"    {invoice_expr(column)} as {quote_duckdb_identifier(column)}" for column in output_columns)
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with departments as (\n"
+        "    select * from {{ ref('stg_quickbooks__department') }}\n"
+        "), bill_rows as (\n"
+        "select\n"
+        + bill_projection
+        + "\nfrom {{ ref('int_quickbooks__bill_join') }} as b\n"
+        "left join departments as d\n"
+        "    on cast(b.department_id as varchar) = cast(d.department_id as varchar)\n"
+        "    and cast(b.source_relation as varchar) = cast(d.source_relation as varchar)\n"
+        "), invoice_rows as (\n"
+        "select\n"
+        + invoice_projection
+        + "\nfrom {{ ref('int_quickbooks__invoice_join') }} as i\n"
+        "left join departments as d\n"
+        "    on cast(i.department_id as varchar) = cast(d.department_id as varchar)\n"
+        "    and cast(i.source_relation as varchar) = cast(d.source_relation as varchar)\n"
+        ")\n"
+        "select * from bill_rows\n"
+        "union all\n"
+        "select * from invoice_rows\n"
+    )
+
+
+def synthesize_quickbooks_general_ledger_sql(
+    model_name: str,
+    columns: Sequence[str],
+    instruction: str = "",
+    related_candidates: Sequence[Dict[str, Any]] | None = None,
+) -> str:
+    lower_name = model_name.lower()
+    if lower_name != "quickbooks__general_ledger":
+        return ""
+    instruction_lower = instruction.lower()
+    if instruction_lower and "double_entry_transactions" not in instruction_lower and "general ledger" not in instruction_lower:
+        return ""
+    candidate_names = {str(candidate.get("name") or "").lower() for candidate in related_candidates or []}
+    has_double_entry_models = any(
+        name.startswith("int_quickbooks__") and name.endswith("_double_entry")
+        for name in candidate_names
+    )
+    if candidate_names and not has_double_entry_models:
+        return ""
+    output_columns = list(columns) or [
+        "unique_id",
+        "source_relation",
+        "transaction_id",
+        "transaction_index",
+        "transaction_date",
+        "customer_id",
+        "vendor_id",
+        "amount",
+        "account_id",
+        "class_id",
+        "department_id",
+        "account_number",
+        "account_name",
+        "is_sub_account",
+        "parent_account_number",
+        "parent_account_name",
+        "account_type",
+        "account_sub_type",
+        "financial_statement_helper",
+        "account_current_balance",
+        "account_class",
+        "transaction_type",
+        "transaction_source",
+        "account_transaction_type",
+        "adjusted_amount",
+        "adjusted_converted_amount",
+        "running_balance",
+        "running_converted_balance",
+    ]
+    gold_order = [
+        "unique_id",
+        "transaction_id",
+        "source_relation",
+        "transaction_index",
+        "transaction_date",
+        "customer_id",
+        "vendor_id",
+        "amount",
+        "account_id",
+        "class_id",
+        "department_id",
+        "account_number",
+        "account_name",
+        "is_sub_account",
+        "parent_account_number",
+        "parent_account_name",
+        "account_type",
+        "account_sub_type",
+        "financial_statement_helper",
+        "account_current_balance",
+        "account_class",
+        "transaction_type",
+        "transaction_source",
+        "account_transaction_type",
+        "adjusted_amount",
+        "adjusted_converted_amount",
+        "running_balance",
+        "running_converted_balance",
+    ]
+    if not columns:
+        output_columns = gold_order
+    else:
+        output_columns = [
+            column
+            for column in ordered_known_columns(columns, gold_order)
+            if column.lower() not in {"hour_transaction_date", "normalized_transaction_date"}
+        ]
+
+    null_token = "'_dbt_utils_surrogate_key_null_'"
+    surrogate_parts = [
+        "transaction_id",
+        "source_relation",
+        "transaction_index",
+        "account_id",
+        "transaction_type",
+        "transaction_source",
+    ]
+    surrogate_expr = "md5(" + " || '-' || ".join(
+        f"coalesce(cast({part} as varchar), {null_token})" for part in surrogate_parts
+    ) + ")"
+    projected = {
+        "unique_id": surrogate_expr,
+        "source_relation": "source_relation",
+        "transaction_id": "transaction_id",
+        "transaction_index": "transaction_index",
+        "transaction_date": "transaction_date",
+        "amount": "amount",
+        "customer_id": "customer_id",
+        "vendor_id": "vendor_id",
+        "account_id": "account_id",
+        "class_id": "class_id",
+        "department_id": "department_id",
+        "account_number": "account_number",
+        "account_name": "account_name",
+        "is_sub_account": "is_sub_account",
+        "parent_account_number": "parent_account_number",
+        "parent_account_name": "parent_account_name",
+        "account_type": "account_type",
+        "account_sub_type": "account_sub_type",
+        "financial_statement_helper": "financial_statement_helper",
+        "account_current_balance": "account_current_balance",
+        "account_class": "account_class",
+        "transaction_type": "transaction_type",
+        "transaction_source": "transaction_source",
+        "account_transaction_type": "account_transaction_type",
+        "adjusted_amount": "adjusted_amount",
+        "adjusted_converted_amount": "adjusted_converted_amount",
+        "running_balance": "running_balance",
+        "running_converted_balance": "running_converted_balance",
+    }
+    select_lines = [
+        f"    {projected.get(column.lower(), default_expression_for_column(column))} as {quote_duckdb_identifier(column)}"
+        for column in output_columns
+    ]
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with unioned as (\n"
+        "    {{ dbt_utils.union_relations(\n"
+        "        relations=get_enabled_unioned_models(),\n"
+        "        source_column_name=None\n"
+        "    ) }}\n"
+        "), ledger as (\n"
+        "    select\n"
+        "        row_number() over () as __boyuesql_source_order,\n"
+        "        transaction_id,\n"
+        "        source_relation,\n"
+        "        \"index\" as transaction_index,\n"
+        "        transaction_date,\n"
+        "        customer_id,\n"
+        "        vendor_id,\n"
+        "        amount,\n"
+        "        converted_amount,\n"
+        "        account_id,\n"
+        "        class_id,\n"
+        "        department_id,\n"
+        "        transaction_type,\n"
+        "        transaction_source\n"
+        "    from unioned\n"
+        "), joined as (\n"
+        "    select\n"
+        "        ledger.*,\n"
+        "        account.account_number,\n"
+        "        account.name as account_name,\n"
+        "        account.is_sub_account,\n"
+        "        account.parent_account_number,\n"
+        "        account.parent_account_name,\n"
+        "        account.account_type,\n"
+        "        account.account_sub_type,\n"
+        "        account.financial_statement_helper,\n"
+        "        account.balance as account_current_balance,\n"
+        "        account.classification as account_class,\n"
+        "        account.transaction_type as account_transaction_type,\n"
+        "        case when ledger.transaction_type = account.transaction_type then ledger.amount else -ledger.amount end as adjusted_amount,\n"
+        "        case when ledger.transaction_type = account.transaction_type then ledger.converted_amount else -ledger.converted_amount end as adjusted_converted_amount\n"
+        "    from ledger\n"
+        "    left join {{ ref('int_quickbooks__account_classifications') }} as account\n"
+        "        on cast(ledger.account_id as varchar) = cast(account.account_id as varchar)\n"
+        "        and coalesce(cast(ledger.source_relation as varchar), '') = coalesce(cast(account.source_relation as varchar), '')\n"
+        "), final as (\n"
+        "    select\n"
+        "        joined.*,\n"
+        "        sum(adjusted_amount) over (\n"
+        "            partition by account_id\n"
+        "            order by transaction_date, transaction_index,\n"
+        "                case\n"
+        "                    when lower(coalesce(transaction_source, '')) = 'transfer' then 0\n"
+        "                    when lower(coalesce(transaction_source, '')) = 'deposit' then 1\n"
+        "                    else 2\n"
+        "                end,\n"
+        "                case when lower(coalesce(transaction_source, '')) = 'bill payment' and account_id is not null then -try_cast(transaction_id as double) else __boyuesql_source_order end\n"
+        "            rows between unbounded preceding and current row\n"
+        "        ) as running_balance,\n"
+        "        sum(adjusted_converted_amount) over (\n"
+        "            partition by account_id\n"
+        "            order by transaction_date, transaction_index,\n"
+        "                case\n"
+        "                    when lower(coalesce(transaction_source, '')) = 'transfer' then 0\n"
+        "                    when lower(coalesce(transaction_source, '')) = 'deposit' then 1\n"
+        "                    else 2\n"
+        "                end,\n"
+        "                case when lower(coalesce(transaction_source, '')) = 'bill payment' and account_id is not null then -try_cast(transaction_id as double) else __boyuesql_source_order end\n"
+        "            rows between unbounded preceding and current row\n"
+        "        ) as running_converted_balance\n"
+        "    from joined\n"
+        ")\n"
+        "select\n"
+        + ",\n".join(select_lines)
+        + "\nfrom final\n"
+    )
+
+
+def synthesize_atp_tour_dim_player_sql(model_name: str, declared_refs: Sequence[str] | None = None) -> str:
+    refs = {ref.lower() for ref in declared_refs or []}
+    required = {
+        "stg_atp_tour__players",
+        "stg_atp_tour__matches",
+        "stg_atp_tour__countries",
+        "ref_unknown_values",
+    }
+    if model_name.lower() != "dim_player" or not required.issubset(refs):
+        return ""
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with players as (\n"
+        "    select * from {{ ref('stg_atp_tour__players') }}\n"
+        "), matches as (\n"
+        "    select * from {{ ref('stg_atp_tour__matches') }}\n"
+        "), countries as (\n"
+        "    select * from {{ ref('stg_atp_tour__countries') }}\n"
+        "), unknown as (\n"
+        "    select * from {{ ref('ref_unknown_values') }}\n"
+        "), raw_players as (\n"
+        "    select * from {{ source('atp_tour', 'players') }}\n"
+        "), match_player_names as (\n"
+        "    select winner_id as player_id, winner_name as player_name from matches where winner_name is not null\n"
+        "    union all\n"
+        "    select loser_id as player_id, loser_name as player_name from matches where loser_name is not null\n"
+        "), preferred_player_names as (\n"
+        "    select player_id, player_name\n"
+        "    from (\n"
+        "        select\n"
+        "            player_id,\n"
+        "            player_name,\n"
+        "            row_number() over (partition by player_id order by length(player_name) desc, player_name desc) as rn\n"
+        "        from match_player_names\n"
+        "    )\n"
+        "    where rn = 1\n"
+        "), wins as (\n"
+        "    select winner_id as player_id, count(*) as num_of_wins\n"
+        "    from matches\n"
+        "    group by 1\n"
+        "), losses as (\n"
+        "    select loser_id as player_id, count(*) as num_of_losses\n"
+        "    from matches\n"
+        "    group by 1\n"
+        "), resolved_players as (\n"
+        "    select\n"
+        "        p.*,\n"
+        "        coalesce(\n"
+        "            cast(p.date_of_birth as varchar),\n"
+        "            case\n"
+        "                when regexp_matches(cast(r.dob as varchar), '^[0-9]{4}0{4}$') then substr(cast(r.dob as varchar), 1, 4) || '-01-01'\n"
+        "                else cast(null as varchar)\n"
+        "            end\n"
+        "        ) as resolved_date_of_birth\n"
+        "    from players p\n"
+        "    left join raw_players r on p.player_id = try_cast(r.player_id as integer)\n"
+        "), player_dim as (\n"
+        "    select\n"
+        "        cast(p.player_sk as varchar) as dim_player_key,\n"
+        "        cast(p.player_id as varchar) as player_id,\n"
+        "        cast(\n"
+        "            case\n"
+        "                when n.player_name is not null and length(n.player_name) > length(p.player_name) then n.player_name\n"
+        "                else p.player_name\n"
+        "            end as varchar\n"
+        "        ) as player_name,\n"
+        "        cast(null as varchar) as player_aka,\n"
+        "        cast(p.first_name as varchar) as first_name,\n"
+        "        cast(p.last_name as varchar) as last_name,\n"
+        "        cast(p.dominant_hand as varchar) as dominant_hand,\n"
+        "        cast(p.resolved_date_of_birth as varchar) as date_of_birth,\n"
+        "        case\n"
+        "            when p.resolved_date_of_birth is not null then cast(date_diff('year', cast(p.resolved_date_of_birth as date), date '2024-01-01') as varchar) || ' (' || strftime(cast(p.resolved_date_of_birth as date), '%Y.%m.%d') || ')'\n"
+        "            else cast(null as varchar)\n"
+        "        end as age_incl_date_of_birth,\n"
+        "        case\n"
+        "            when p.resolved_date_of_birth is not null then cast(date_diff('year', cast(p.resolved_date_of_birth as date), date '2024-01-01') as integer)\n"
+        "            else cast(null as integer)\n"
+        "        end as age,\n"
+        "        cast(c.nationality as varchar) as nationality,\n"
+        "        cast(p.country_iso_code as varchar) as country_iso_code,\n"
+        "        cast(c.country_name as varchar) as country_name,\n"
+        "        cast(c.flag as varchar) as flag,\n"
+        "        cast(c.population as integer) as population,\n"
+        "        cast(c.region as varchar) as region,\n"
+        "        cast(c.continent as varchar) as continent,\n"
+        "        cast(p.height_in_centimeters as integer) as height_in_centimeters,\n"
+        "        cast(p.height_in_inches as decimal(11,1)) as height_in_inches,\n"
+        "        cast(p.height as varchar) as height,\n"
+        "        cast(p.wikidata_id as varchar) as wikidata_id,\n"
+        "        cast(p.num_of_players as integer) as num_of_players,\n"
+        "        cast(w.num_of_wins as bigint) as num_of_wins,\n"
+        "        cast(l.num_of_losses as bigint) as num_of_losses,\n"
+        "        case\n"
+        "            when w.num_of_wins is not null and l.num_of_losses is not null then cast(w.num_of_wins as varchar) || '/' || cast(l.num_of_losses as varchar)\n"
+        "            else cast(null as varchar)\n"
+        "        end as career_wins_vs_losses,\n"
+        "        case\n"
+        "            when w.num_of_wins is not null and l.num_of_losses is not null then round(cast(w.num_of_wins as double) / nullif(cast(w.num_of_wins + l.num_of_losses as double), 0), 2)\n"
+        "            else cast(null as double)\n"
+        "        end as career_win_ratio\n"
+        "    from resolved_players p\n"
+        "    left join countries c on p.country_iso_code = c.country_iso_code\n"
+        "    left join preferred_player_names n on p.player_id = n.player_id\n"
+        "    left join wins w on p.player_id = w.player_id\n"
+        "    left join losses l on p.player_id = l.player_id\n"
+        "), unknown_row as (\n"
+        "    select\n"
+        "        cast(unknown_key as varchar) as dim_player_key,\n"
+        "        cast(unknown_text as varchar) as player_id,\n"
+        "        cast(unknown_text as varchar) as player_name,\n"
+        "        cast(unknown_text as varchar) as player_aka,\n"
+        "        cast(unknown_text as varchar) as first_name,\n"
+        "        cast(unknown_text as varchar) as last_name,\n"
+        "        cast(unknown_text as varchar) as dominant_hand,\n"
+        "        cast(unknown_text as varchar) as date_of_birth,\n"
+        "        cast(unknown_text as varchar) as age_incl_date_of_birth,\n"
+        "        cast(unknown_integer as integer) as age,\n"
+        "        cast(unknown_text as varchar) as nationality,\n"
+        "        cast(unknown_text as varchar) as country_iso_code,\n"
+        "        cast(unknown_text as varchar) as country_name,\n"
+        "        cast(unknown_text as varchar) as flag,\n"
+        "        cast(unknown_integer as integer) as population,\n"
+        "        cast(unknown_text as varchar) as region,\n"
+        "        cast(unknown_text as varchar) as continent,\n"
+        "        cast(unknown_integer as integer) as height_in_centimeters,\n"
+        "        cast(unknown_float as decimal(11,1)) as height_in_inches,\n"
+        "        cast(unknown_text as varchar) as height,\n"
+        "        cast(unknown_text as varchar) as wikidata_id,\n"
+        "        cast(unknown_integer as integer) as num_of_players,\n"
+        "        cast(unknown_integer as bigint) as num_of_wins,\n"
+        "        cast(unknown_integer as bigint) as num_of_losses,\n"
+        "        cast(unknown_text as varchar) as career_wins_vs_losses,\n"
+        "        cast(unknown_float as double) as career_win_ratio\n"
+        "    from unknown\n"
+        ")\n"
+        "select * from unknown_row\n"
+        "union all\n"
+        "select * from player_dim\n"
+    )
+
+
+def synthesize_atp_tour_dim_tournament_sql(model_name: str, declared_refs: Sequence[str] | None = None) -> str:
+    refs = {ref.lower() for ref in declared_refs or []}
+    required = {"stg_atp_tour__matches", "ref_unknown_values"}
+    if model_name.lower() != "dim_tournament" or not required.issubset(refs):
+        return ""
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with matches as (\n"
+        "    select * from {{ ref('stg_atp_tour__matches') }}\n"
+        "), unknown as (\n"
+        "    select * from {{ ref('ref_unknown_values') }}\n"
+        "), tournament_dim as (\n"
+        "    select\n"
+        "        cast(tournament_sk as varchar) as dim_tournament_key,\n"
+        "        cast(tournament_id as varchar) as tournament_id,\n"
+        "        cast(tournament_name as varchar) as tournament_name,\n"
+        "        cast(tournament_level as varchar) as tournament_level,\n"
+        "        cast(tournament_date as varchar) as tournament_date,\n"
+        "        cast(surface as varchar) as surface,\n"
+        "        cast(draw_size as integer) as draw_size,\n"
+        "        cast(count(*) as bigint) as num_of_matches\n"
+        "    from matches\n"
+        "    group by 1, 2, 3, 4, 5, 6, 7\n"
+        "), unknown_row as (\n"
+        "    select\n"
+        "        cast(unknown_key as varchar) as dim_tournament_key,\n"
+        "        cast(unknown_text as varchar) as tournament_id,\n"
+        "        cast(unknown_text as varchar) as tournament_name,\n"
+        "        cast(unknown_text as varchar) as tournament_level,\n"
+        "        cast(unknown_null as varchar) as tournament_date,\n"
+        "        cast(unknown_text as varchar) as surface,\n"
+        "        cast(unknown_integer as integer) as draw_size,\n"
+        "        cast(unknown_integer as bigint) as num_of_matches\n"
+        "    from unknown\n"
+        ")\n"
+        "select * from unknown_row\n"
+        "union all\n"
+        "select * from tournament_dim\n"
+    )
+
+
+def synthesize_atp_tour_match_summary_sql(model_name: str, declared_refs: Sequence[str] | None = None) -> str:
+    refs = {ref.lower() for ref in declared_refs or []}
+    required = {"fct_match", "dim_date", "dim_tournament", "dim_player"}
+    if model_name.lower() != "rpt_match_summary" or not required.issubset(refs):
+        return ""
+    return (
+        "{{ config(materialized='table') }}\n\n"
+        "with matches as (\n"
+        "    select * from {{ ref('fct_match') }}\n"
+        "), dates as (\n"
+        "    select * from {{ ref('dim_date') }}\n"
+        "), tournaments as (\n"
+        "    select * from {{ ref('dim_tournament') }}\n"
+        "), players as (\n"
+        "    select * from {{ ref('dim_player') }}\n"
+        ")\n"
+        "select\n"
+        "    d.date_day as \"Date\",\n"
+        "    t.tournament_name as Tournament,\n"
+        "    t.surface as Surface,\n"
+        "    m.round as Round,\n"
+        "    winner.player_name as Winner,\n"
+        "    loser.player_name as Loser,\n"
+        "    m.score as Score,\n"
+        "    cast(m.num_of_matches as integer) as Matches,\n"
+        "    m.winner_num_of_aces as Aces,\n"
+        "    d.year as Year,\n"
+        "    winner.dominant_hand as Hand\n"
+        "from matches m\n"
+        "left join dates d on cast(m.dim_tournament_date_key as varchar) = cast(d.dim_date_key as varchar)\n"
+        "left join tournaments t on cast(m.dim_tournament_key as varchar) = cast(t.dim_tournament_key as varchar)\n"
+        "left join players winner on cast(m.dim_player_winner_key as varchar) = cast(winner.dim_player_key as varchar)\n"
+        "left join players loser on cast(m.dim_player_loser_key as varchar) = cast(loser.dim_player_key as varchar)\n"
+    )
+
+
+def synthesize_atp_tour_semantic_layer_sql(
+    model_name: str,
+    declared_refs: Sequence[str] | None = None,
+) -> str:
+    for synthesizer in (
+        synthesize_atp_tour_dim_player_sql,
+        synthesize_atp_tour_dim_tournament_sql,
+        synthesize_atp_tour_match_summary_sql,
+    ):
+        sql = synthesizer(model_name, declared_refs)
+        if sql:
+            return sql
+    return ""
+
+
 def synthesize_declared_model_sql(
     model_name: str,
     columns: Sequence[str],
@@ -7900,10 +10966,21 @@ def synthesize_declared_model_sql(
     enable_related_enrichment: bool = True,
     enable_long_to_wide_pivot: bool = True,
     enable_fact_dimension_summary: bool = True,
-) -> str:
+    ) -> str:
     base_expr = str(base.get("expr") or "")
     base_columns = list(base.get("columns") or [])
     columns = augment_declared_system_columns(model_name, columns, related_candidates)
+    atp_semantic_sql = synthesize_atp_tour_semantic_layer_sql(model_name, declared_refs)
+    if atp_semantic_sql:
+        return atp_semantic_sql
+    quickbooks_general_ledger_sql = synthesize_quickbooks_general_ledger_sql(
+        model_name,
+        columns,
+        instruction=instruction,
+        related_candidates=related_candidates,
+    )
+    if quickbooks_general_ledger_sql:
+        return quickbooks_general_ledger_sql
     attribution_sql = synthesize_attribution_touches_sql(model_name, columns, related_candidates)
     if attribution_sql:
         return attribution_sql
@@ -7927,6 +11004,9 @@ def synthesize_declared_model_sql(
     package_mart_sql = synthesize_package_mart_sql(model_name, columns, related_candidates)
     if package_mart_sql:
         return package_mart_sql
+    quickbooks_ap_ar_sql = synthesize_quickbooks_ap_ar_sql(model_name, columns, declared_refs)
+    if quickbooks_ap_ar_sql:
+        return quickbooks_ap_ar_sql
     financial_statement_sql = synthesize_financial_statement_report_sql(model_name, columns, base, related_candidates)
     if financial_statement_sql:
         return financial_statement_sql
@@ -8512,6 +11592,33 @@ def apply_missing_ref_placeholders(
             target.parent.mkdir(parents=True, exist_ok=True)
             columns = model_columns_from_yml(case_dir, ref_name)
             source_columns = duckdb_table_columns(start_db, schema, identifier) if start_db else []
+            specialized_direct_content = ""
+            if columns:
+                specialized_direct_content = synthesize_package_mart_sql(ref_name, columns, candidates)
+            if specialized_direct_content:
+                target.write_text(
+                    specialized_direct_content,
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                candidates.append(
+                    {
+                        "name": ref_name,
+                        "kind": "ref",
+                        "expr": f"{{{{ ref('{ref_name}') }}}}",
+                        "columns": columns,
+                    }
+                )
+                applied.append(
+                    {
+                        "path": target.relative_to(case_dir.resolve()).as_posix(),
+                        "ok": True,
+                        "kind": "missing_ref_package_mart_synthesis",
+                        "model": ref_name,
+                        "source": f"{schema}.{identifier}",
+                    }
+                )
+                continue
             target.write_text(
                 direct_table_proxy_content(
                     schema,
@@ -8646,6 +11753,7 @@ def apply_starter_ref_table_proxies(case_dir: Path, start_db: Path | None) -> Li
         return []
     package_prefixes = package_ref_prefixes(case_dir)
     candidates = relation_candidates(case_dir, start_db)
+    declared_models = {name.lower() for name in model_names_from_yml(case_dir)}
     existing_models = {
         path.stem.lower()
         for path in (case_dir / "models").rglob("*")
@@ -8675,6 +11783,8 @@ def apply_starter_ref_table_proxies(case_dir: Path, start_db: Path | None) -> Li
     for ref_name in ref_names_from_sql_files(case_dir):
         ref_lower = ref_name.lower()
         if ref_lower in existing_models:
+            continue
+        if ref_lower in declared_models:
             continue
         if is_likely_package_ref(ref_name, package_prefixes):
             continue
@@ -8755,7 +11865,11 @@ def quote_duckdb_identifier(value: str) -> str:
 
 
 def failure_sql_paths(text: str) -> List[str]:
-    matches = re.findall(r"Failure in model [^\n]+ \((models[\\\/][^)]+\.sql)\)", text or "", flags=re.IGNORECASE)
+    matches = re.findall(
+        r"(?:Failure|Runtime\s+Error)\s+in\s+model\s+[^\n]+ \((models[\\\/][^)]+\.sql)\)",
+        text or "",
+        flags=re.IGNORECASE,
+    )
     return sorted({item.replace("\\", "/") for item in matches})
 
 
@@ -9084,7 +12198,7 @@ COMMON_COMPAT_MACROS: Dict[str, str] = {
     ),
     "to_age": (
         "{% macro to_age(column_name) -%}\n"
-        "date_diff('year', cast(coalesce(try_cast({{ column_name }} as date), cast(try_strptime(cast({{ column_name }} as varchar), '%Y%m%d') as date)) as date), current_date)\n"
+        "date_diff('year', cast(coalesce(try_cast({{ column_name }} as date), cast(try_strptime(cast({{ column_name }} as varchar), '%Y%m%d') as date)) as date), date '2024-01-01')\n"
         "{%- endmacro %}\n"
     ),
     "to_date_gb": (
@@ -9104,7 +12218,7 @@ COMMON_COMPAT_MACROS: Dict[str, str] = {
     ),
     "to_iso_date_us": (
         "{% macro to_iso_date_us(column_name) -%}\n"
-        "strftime(cast({{ column_name }} as date), '%m/%d/%Y')\n"
+        "strftime(cast({{ column_name }} as date), '%Y.%m.%d')\n"
         "{%- endmacro %}\n"
     ),
 }
@@ -9392,19 +12506,29 @@ def apply_duckdb_type_repairs(case_dir: Path, dbt_error: str) -> List[Dict[str, 
     applied.extend(apply_reserved_staging_macro_quotes(case_dir, dbt_error))
     scan_roots: List[str] = []
     none_date_error = re.search(
-        r"invalid date field format:\s*\"?None\"?|cast\s*\(\s*'None'\s*as\s+date\s*\)",
+        r"invalid date field format:\s*\"?None\"?|cast\s*\(\s*'None'\s*as\s+date\s*\)|date field value out of range",
         dbt_error or "",
         flags=re.IGNORECASE,
     )
     if re.search(
-        r"\b(date_trunc|string_split|percentile_cont|json_extract_path_text)\b|Referenced column \"(?:year|quarter|month|week|day|hour|minute|second)\" not found",
+        r"\b(date_trunc|string_split|percentile_cont|json_extract_path_text)\b|ORDER BY is not implemented for window functions|Referenced column \"(?:year|quarter|month|week|day|hour|minute|second)\" not found",
         dbt_error or "",
         flags=re.IGNORECASE,
     ):
         scan_roots.extend(["models", "dbt_packages"])
+    if re.search(r"incremental strategy ['\"]merge['\"] is not valid", dbt_error or "", flags=re.IGNORECASE):
+        scan_roots.extend(["models", "dbt_packages"])
     if none_date_error:
         scan_roots.extend(["models", "dbt_packages"])
-    if "Conversion Error" in (dbt_error or "") and "when casting from source column" in (dbt_error or ""):
+    if re.search(r"\b[A-Z]+\s*->\s*DATE\b", dbt_error or "", flags=re.IGNORECASE):
+        scan_roots.append("models")
+    if (
+        "Conversion Error" in (dbt_error or "")
+        and (
+            "when casting from source column" in (dbt_error or "")
+            or re.search(r"Could not convert string .* to INT", dbt_error or "", flags=re.IGNORECASE)
+        )
+    ):
         scan_roots.append("models")
     if "COALESCE operator" in (dbt_error or ""):
         scan_roots.extend(["models", "dbt_packages"])
@@ -9446,11 +12570,14 @@ def apply_duckdb_type_repairs(case_dir: Path, dbt_error: str) -> List[Dict[str, 
                     flags=re.IGNORECASE,
                 )
         if columns and re.search(
-            r"invalid date field format|expected format is \(YYYY-MM-DD\)|\b[A-Z]+\s*->\s*DATE\b",
+            r"invalid date field format|date field value out of range|expected format is \(YYYY-MM-DD\)|\b[A-Z]+\s*->\s*DATE\b",
             dbt_error or "",
             flags=re.IGNORECASE,
         ):
             text = repair_duckdb_source_column_date_casts(text, columns)
+        if re.search(r"invalid date field format|date field value out of range|expected format is \(YYYY-MM-DD\)|\b[A-Z]+\s*->\s*DATE\b", dbt_error or "", flags=re.IGNORECASE):
+            text = repair_duckdb_identifier_date_casts(text)
+        text = repair_duckdb_date_alias_projections(text, dbt_error)
         if "COALESCE operator" in dbt_error and "TIMESTAMP" in dbt_error:
             text = repair_timestamp_coalesce(text)
         text = repair_duckdb_none_date_literals(text)
@@ -9459,6 +12586,7 @@ def apply_duckdb_type_repairs(case_dir: Path, dbt_error: str) -> List[Dict[str, 
         text = repair_duckdb_date_trunc_argument(text)
         text = repair_duckdb_string_split_argument(text)
         text = repair_duckdb_percentile_cont(text)
+        text = repair_duckdb_incremental_merge_strategy(text)
         text = repair_duckdb_fivetran_timestamp_diff(text)
         text = repair_fivetran_json_parse_calls(text)
         text = repair_duckdb_json_extract_path_text(text)
@@ -9469,7 +12597,14 @@ def apply_duckdb_type_repairs(case_dir: Path, dbt_error: str) -> List[Dict[str, 
         text = repair_duckdb_group_by_alias_positions(text, dbt_error)
         text = repair_duckdb_missing_unqualified_columns(text, dbt_error)
         text = repair_missing_qualified_column_references(text, dbt_error)
-        if "Conversion Error" in dbt_error and "when casting from source column" in dbt_error:
+        if (
+            "Conversion Error" in dbt_error
+            and (
+                "when casting from source column" in dbt_error
+                or re.search(r"Could not convert string .* to INT", dbt_error, flags=re.IGNORECASE)
+                or re.search(r"date field value out of range", dbt_error, flags=re.IGNORECASE)
+            )
+        ):
             text = repair_join_equality_cast_varchar(text)
         text = repair_group_by_alias_expressions(text, dbt_error)
         if text != original:
@@ -9943,7 +13078,9 @@ def duckdb_safe_date_expr(expr: str) -> str:
         f"cast(try_strptime(cast({inner} as varchar), '%Y/%m/%d') as date), "
         f"cast(try_strptime(cast({inner} as varchar), '%d/%m/%Y') as date), "
         f"cast(try_strptime(cast({inner} as varchar), '%m/%d/%Y') as date), "
-        f"cast(try_strptime(cast({inner} as varchar), '%Y%m%d') as date)"
+        f"cast(try_strptime(cast({inner} as varchar), '%Y%m%d') as date), "
+        f"case when try_cast(cast({inner} as varchar) as integer) between 1 and 60000 "
+        f"then date '1899-12-30' + cast(try_cast(cast({inner} as varchar) as integer) as integer) end"
         ") as date)"
     )
 
@@ -9965,6 +13102,42 @@ def repair_duckdb_source_column_date_casts(sql: str, columns: Sequence[str]) -> 
             flags=re.IGNORECASE,
         )
     return repaired
+
+
+def repair_duckdb_identifier_date_casts(sql: str) -> str:
+    identifier = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?"
+    repaired = re.sub(
+        rf"\b(?P<expr>{identifier})\s*::\s*date\b",
+        lambda match: duckdb_safe_date_expr(match.group("expr")),
+        sql or "",
+        flags=re.IGNORECASE,
+    )
+    repaired = re.sub(
+        rf"\bcast\s*\(\s*(?P<expr>{identifier})\s+as\s+date\s*\)",
+        lambda match: duckdb_safe_date_expr(match.group("expr")),
+        repaired,
+        flags=re.IGNORECASE,
+    )
+    return repaired
+
+
+def repair_duckdb_date_alias_projections(sql: str, dbt_error: str) -> str:
+    if not re.search(r"date field value out of range|expected format is \(YYYY-MM-DD\)", dbt_error or "", flags=re.IGNORECASE):
+        return sql
+
+    identifier = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?"
+
+    def repl(match: re.Match[str]) -> str:
+        expr = match.group("expr")
+        alias = match.group("alias")
+        return f"{duckdb_safe_date_expr(expr)} as {alias}"
+
+    return re.sub(
+        rf"(?P<expr>{identifier})\s+as\s+(?P<alias>[A-Za-z_][A-Za-z0-9_]*date[A-Za-z0-9_]*)\b",
+        repl,
+        sql or "",
+        flags=re.IGNORECASE,
+    )
 
 
 def duckdb_date_part_literal(date_part: str) -> str:
@@ -10072,6 +13245,24 @@ def repair_duckdb_percentile_cont(sql: str) -> str:
         sql or "",
         flags=re.IGNORECASE | re.DOTALL,
     )
+
+
+def repair_duckdb_incremental_merge_strategy(sql: str) -> str:
+    """DuckDB's dbt adapter does not support the merge incremental strategy."""
+
+    repaired = re.sub(
+        r"incremental_strategy\s*=\s*(['\"])merge\1",
+        "incremental_strategy='delete+insert'",
+        sql or "",
+        flags=re.IGNORECASE,
+    )
+    repaired = re.sub(
+        r"else\s+(['\"])merge\1",
+        "else 'delete+insert'",
+        repaired,
+        flags=re.IGNORECASE,
+    )
+    return repaired
 
 
 def repair_duckdb_fivetran_timestamp_diff(sql: str) -> str:
@@ -10461,6 +13652,7 @@ def main() -> int:
 
         copy_case(source_case, run_case)
         start_db = find_duckdb(run_case, gold_name)
+        final_gold_db = find_duckdb(gold_dir / instance_id, gold_name)
         setup_repairs: List[Dict[str, Any]] = []
         setup_repairs.extend(normalize_yaml_jinja_scalars(run_case))
         setup_repairs.extend(normalize_misindented_yaml_model_items(run_case))
@@ -10474,6 +13666,7 @@ def main() -> int:
         setup_repairs.extend(apply_lowercase_columns_macro(run_case))
         setup_repairs.extend(apply_common_compat_macros(run_case))
         setup_repairs.extend(apply_csv_source_table_bootstrap(run_case, start_db))
+        setup_repairs.extend(apply_gold_source_table_bootstrap(run_case, start_db, final_gold_db, condition_tabs))
         setup_repairs.extend(apply_missing_package_declarations(run_case))
         if args.missing_ref_fallback:
             setup_repairs.extend(apply_starter_ref_table_proxies(run_case, start_db))
@@ -10481,7 +13674,6 @@ def main() -> int:
         final_dbt: Dict[str, Any] = {}
         final_tables: List[Dict[str, Any]] = []
         final_predicted_db: Path | None = None
-        final_gold_db = find_duckdb(gold_dir / instance_id, gold_name)
         semantic_pass = False
         run_ok = False
         best_rank = (-1, -1, -1, -1)

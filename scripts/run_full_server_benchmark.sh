@@ -36,7 +36,7 @@ export RUN_DBT_LLM="${RUN_DBT_LLM:-0}"
 export DBT_LLM_LIMIT="${DBT_LLM_LIMIT:-68}"
 
 export BOYUESQL_MODELS="${BOYUESQL_MODELS:-qwen3-vl:8b}"
-export BASELINE_MODELS="${BASELINE_MODELS:-qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b}"
+export BASELINE_MODELS="${BASELINE_MODELS:-qwen2.5-coder:7b,sqlcoder:7b}"
 export DBT_EDIT_MODELS="${DBT_EDIT_MODELS:-${BOYUESQL_MODELS}}"
 
 export OLLAMA_API="${OLLAMA_API:-chat}"

@@ -150,6 +150,67 @@ class DbtEvaluatorTests(unittest.TestCase):
             self.assertFalse(result["match"])
             self.assertFalse(result["tolerant_rows_match"])
 
+    def test_compare_condition_table_treats_list_aggregate_order_as_tolerant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pred = Path(tmp) / "pred.duckdb"
+            gold = Path(tmp) / "gold.duckdb"
+            with duckdb.connect(str(pred)) as conn:
+                conn.execute("create table result(team_id varchar, components varchar)")
+                conn.execute("insert into result values ('team-1', 'Component 2, Component 5, Component 4')")
+            with duckdb.connect(str(gold)) as conn:
+                conn.execute("create table result(team_id varchar, components varchar)")
+                conn.execute("insert into result values ('team-1', 'Component 5, Component 4, Component 2')")
+
+            result = compare_condition_table(pred, gold, "result", [], True, True)
+
+            self.assertTrue(result["match"])
+            self.assertFalse(result["exact_rows_match"])
+            self.assertTrue(result["tolerant_rows_match"])
+
+    def test_compare_condition_table_marks_unseeded_simulation_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pred = Path(tmp) / "pred.duckdb"
+            gold = Path(tmp) / "gold.duckdb"
+            create_sql = (
+                "create table season_summary("
+                "elo_rating varchar, record varchar, avg_wins double, vegas_wins double, "
+                "elo_vs_vegas double, made_playoffs bigint, made_conf_semis bigint, "
+                "made_conf_finals bigint, made_finals bigint, won_finals bigint)"
+            )
+            with duckdb.connect(str(pred)) as conn:
+                conn.execute(create_sql)
+                conn.execute("insert into season_summary values ('1826 (+216)', '64 - 18', 64.0, 54.7, -9.3, 10000, 9803, 9607, 9149, 7914)")
+            with duckdb.connect(str(gold)) as conn:
+                conn.execute(create_sql)
+                conn.execute("insert into season_summary values ('1826 (+216)', '64 - 18', 64.0, 54.7, -9.3, 10000, 9762, 9573, 9131, 7839)")
+
+            result = compare_condition_table(pred, gold, "season_summary", [], True, True)
+
+            self.assertFalse(result["match"])
+            self.assertTrue(result["gold_artifact_issue"])
+            self.assertIn("nondeterministic simulation artifact", result["gold_error"])
+
+    def test_compare_condition_table_rejects_simulation_artifact_when_stable_fields_differ(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pred = Path(tmp) / "pred.duckdb"
+            gold = Path(tmp) / "gold.duckdb"
+            create_sql = (
+                "create table season_summary("
+                "elo_rating varchar, record varchar, avg_wins double, vegas_wins double, "
+                "elo_vs_vegas double, made_playoffs bigint, made_conf_semis bigint)"
+            )
+            with duckdb.connect(str(pred)) as conn:
+                conn.execute(create_sql)
+                conn.execute("insert into season_summary values ('1826 (+216)', '64 - 18', 64.0, 54.7, -9.3, 10000, 9803)")
+            with duckdb.connect(str(gold)) as conn:
+                conn.execute(create_sql)
+                conn.execute("insert into season_summary values ('1826 (+216)', '63 - 19', 64.0, 54.7, -9.3, 10000, 9762)")
+
+            result = compare_condition_table(pred, gold, "season_summary", [], True, True)
+
+            self.assertFalse(result["match"])
+            self.assertFalse(result["gold_artifact_issue"])
+
     def test_compare_condition_table_skips_tolerant_rows_when_columns_differ(self) -> None:
         original = dbt_exp.row_sets_match
         dbt_exp.row_sets_match = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not be called"))
@@ -231,6 +292,31 @@ class DbtEvaluatorTests(unittest.TestCase):
         self.assertTrue(result["match"])
         self.assertTrue(result["large_result"])
         self.assertEqual(result["pred_fingerprint"], result["gold_fingerprint"])
+
+    def test_large_result_falls_back_to_tolerant_fetch_for_float_boundary(self) -> None:
+        original_limit = dbt_exp.MAX_SIGNATURE_FETCH_ROWS
+        original_large_limit = dbt_exp.MAX_LARGE_TOLERANT_FETCH_ROWS
+        dbt_exp.MAX_SIGNATURE_FETCH_ROWS = 1
+        dbt_exp.MAX_LARGE_TOLERANT_FETCH_ROWS = 10
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pred = Path(tmp) / "pred.duckdb"
+                gold = Path(tmp) / "gold.duckdb"
+                with duckdb.connect(str(pred)) as conn:
+                    conn.execute("create table result(id int, amount double)")
+                    conn.execute("insert into result values (1, 417575.4549999999), (2, 10.0)")
+                with duckdb.connect(str(gold)) as conn:
+                    conn.execute("create table result(id int, amount double)")
+                    conn.execute("insert into result values (1, 417575.455), (2, 10.0)")
+
+                result = compare_condition_table(pred, gold, "result", [], True, True)
+        finally:
+            dbt_exp.MAX_SIGNATURE_FETCH_ROWS = original_limit
+            dbt_exp.MAX_LARGE_TOLERANT_FETCH_ROWS = original_large_limit
+
+        self.assertTrue(result["match"])
+        self.assertFalse(result["exact_rows_match"])
+        self.assertTrue(result["tolerant_rows_match"])
 
     def test_compare_condition_table_allows_one_cent_rounded_metric_difference(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

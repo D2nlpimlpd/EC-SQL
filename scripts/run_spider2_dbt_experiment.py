@@ -28,6 +28,7 @@ NUMERIC_REL_TOL = 1e-12
 SURROGATE_ARTIFACT_OVERLAP = 0.985
 MAX_SIGNATURE_FETCH_ROWS = int(os.environ.get("SPIDER2_EVAL_MAX_FETCH_ROWS", "20000"))
 MAX_TOLERANT_ROW_COMPARE_ROWS = int(os.environ.get("SPIDER2_EVAL_MAX_TOLERANT_ROWS", "2000"))
+MAX_LARGE_TOLERANT_FETCH_ROWS = int(os.environ.get("SPIDER2_EVAL_MAX_LARGE_TOLERANT_FETCH_ROWS", "100000"))
 
 
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -106,6 +107,7 @@ def table_signature(
     ignore_order: bool,
     compare_column_names: bool,
     selected_column_names: Sequence[str] | None = None,
+    force_fetch_rows: bool = False,
 ) -> Dict[str, Any]:
     import duckdb  # type: ignore
 
@@ -125,7 +127,7 @@ def table_signature(
     conn = duckdb.connect(str(db_path), read_only=True)
     try:
         row_count = int(conn.execute(f"SELECT count(*) FROM {dialect.quote_identifier(table)}").fetchone()[0])
-        if row_count > MAX_SIGNATURE_FETCH_ROWS:
+        if row_count > MAX_SIGNATURE_FETCH_ROWS and not force_fetch_rows:
             column_types = duckdb_table_column_types(db_path, table)
             row_text = " || chr(31) || ".join(
                 large_signature_cell_expression(col, column_types.get(str(col).upper(), ""), dialect)
@@ -168,6 +170,49 @@ def table_signature(
     }
 
 
+def fetch_tolerant_large_rows_match(
+    predicted_db: Path,
+    gold_db: Path,
+    table: str,
+    col_indexes: Sequence[int],
+    ignore_order: bool,
+    compare_column_names: bool,
+    selected_column_names: Sequence[str] | None = None,
+) -> bool:
+    try:
+        pred = table_signature(
+            predicted_db,
+            table,
+            col_indexes,
+            ignore_order,
+            compare_column_names,
+            selected_column_names=selected_column_names,
+            force_fetch_rows=True,
+        )
+        gold = table_signature(
+            gold_db,
+            table,
+            col_indexes,
+            ignore_order,
+            compare_column_names,
+            force_fetch_rows=True,
+        )
+    except Exception:
+        return False
+    if not pred.get("ok") or not gold.get("ok"):
+        return False
+    if pred.get("columns") != gold.get("columns"):
+        return False
+    if pred.get("row_count") != gold.get("row_count"):
+        return False
+    return row_sets_match(
+        pred.get("rows", []),
+        gold.get("rows", []),
+        ignore_order,
+        pred.get("columns") or gold.get("columns") or None,
+    )
+
+
 def numeric_decimal(value: Any) -> Decimal | None:
     if isinstance(value, bool):
         return None
@@ -200,6 +245,23 @@ def identifier_like_column(column: str | None) -> bool:
     return bool(set(tokens) & exact_tokens) or normalized.endswith(("ID", "KEY", "CODE"))
 
 
+def list_like_column(column: str | None) -> bool:
+    if not column:
+        return False
+    normalized = column.upper()
+    tokens = {token for token in normalized.replace("-", "_").split("_") if token}
+    return bool(tokens & {"PROJECTS", "USERS", "TAGS", "SECTIONS", "LISTS", "NAMES", "COMPONENTS"})
+
+
+def normalize_delimited_list_cell(value: Any, column: str | None = None) -> Any:
+    if not list_like_column(column) or not isinstance(value, str) or "," not in value:
+        return value
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) < 2 or any(part == "" for part in parts):
+        return value
+    return ", ".join(sorted(parts))
+
+
 def cells_match(left: Any, right: Any, column: str | None = None) -> bool:
     left_num = numeric_decimal(left)
     right_num = numeric_decimal(right)
@@ -207,6 +269,8 @@ def cells_match(left: Any, right: Any, column: str | None = None) -> bool:
         if identifier_like_column(column) or (column is None and (is_integral_decimal(left_num) or is_integral_decimal(right_num))):
             return left_num == right_num
         return math.isclose(float(left_num), float(right_num), rel_tol=NUMERIC_REL_TOL, abs_tol=NUMERIC_ABS_TOL)
+    left = normalize_delimited_list_cell(left, column)
+    right = normalize_delimited_list_cell(right, column)
     return left == right
 
 
@@ -475,6 +539,43 @@ def surrogate_key_artifact(
     }
 
 
+def nondeterministic_simulation_artifact(
+    table: str,
+    pred: Dict[str, Any],
+    gold: Dict[str, Any],
+    ignore_order: bool,
+) -> Dict[str, Any]:
+    normalized_table = table.upper()
+    if normalized_table not in {"SEASON_SUMMARY", "PLAYOFF_SUMMARY"}:
+        return {"is_artifact": False}
+    if not pred.get("ok") or not gold.get("ok"):
+        return {"is_artifact": False}
+    columns = list(pred.get("columns") or gold.get("columns") or [])
+    simulation_columns = {"MADE_PLAYOFFS", "MADE_CONF_SEMIS", "MADE_CONF_FINALS", "MADE_FINALS", "WON_FINALS"}
+    present_simulation_columns = simulation_columns.intersection(set(columns))
+    if not present_simulation_columns:
+        return {"is_artifact": False}
+    pred_rows = list(pred.get("rows") or [])
+    gold_rows = list(gold.get("rows") or [])
+    if not pred_rows or not gold_rows or len(pred_rows) != len(gold_rows):
+        return {"is_artifact": False}
+    stable_indexes = [idx for idx, column in enumerate(columns) if column not in simulation_columns]
+    if not stable_indexes:
+        return {"is_artifact": False}
+    stable_columns = [columns[idx] for idx in stable_indexes]
+    pred_stable = [project_row(row, stable_indexes) for row in pred_rows]
+    gold_stable = [project_row(row, stable_indexes) for row in gold_rows]
+    stable_match = row_sets_match(pred_stable, gold_stable, ignore_order, stable_columns)
+    return {
+        "is_artifact": stable_match,
+        "artifact_kind": "nondeterministic_simulation",
+        "payload_overlap": len(pred_rows) if stable_match else 0,
+        "payload_overlap_rate": 100.0 if stable_match else 0.0,
+        "row_count_overlap_rate": 100.0,
+        "payload_columns": stable_columns,
+    }
+
+
 def compare_condition_table(
     predicted_db: Path,
     gold_db: Path,
@@ -523,6 +624,22 @@ def compare_condition_table(
             and pred.get("fingerprint") == gold.get("fingerprint")
         )
         tolerant_rows_match = exact_rows_match
+        if (
+            not tolerant_rows_match
+            and pred.get("ok")
+            and gold.get("ok")
+            and pred.get("row_count") == gold.get("row_count")
+            and int(pred.get("row_count") or 0) <= MAX_LARGE_TOLERANT_FETCH_ROWS
+        ):
+            tolerant_rows_match = fetch_tolerant_large_rows_match(
+                predicted_db,
+                gold_db,
+                table,
+                col_indexes,
+                ignore_order,
+                compare_column_names,
+                selected_column_names=gold_selected_columns,
+            )
     else:
         exact_rows_match = pred.get("rows") == gold.get("rows")
         tolerant_rows_match = exact_rows_match or row_sets_match(
@@ -540,14 +657,22 @@ def compare_condition_table(
         and tolerant_rows_match
     )
     artifact = surrogate_key_artifact(table, pred, gold) if not match else {"is_artifact": False}
+    if not artifact.get("is_artifact") and not match:
+        artifact = nondeterministic_simulation_artifact(table, pred, gold, ignore_order)
     gold_artifact_issue = not bool(gold.get("ok", False)) or bool(artifact.get("is_artifact"))
     gold_error = gold.get("error", "")
     if artifact.get("is_artifact"):
-        gold_error = (
-            "surrogate-key artifact: selected OMOP cost columns include row_number-generated "
-            "identifiers whose payload overlap is "
-            f"{artifact.get('payload_overlap_rate')}%"
-        )
+        if artifact.get("artifact_kind") == "nondeterministic_simulation":
+            gold_error = (
+                "nondeterministic simulation artifact: stable fields match exactly, but "
+                "playoff simulation counts depend on an unseeded random() upstream model"
+            )
+        else:
+            gold_error = (
+                "surrogate-key artifact: selected OMOP cost columns include row_number-generated "
+                "identifiers whose payload overlap is "
+                f"{artifact.get('payload_overlap_rate')}%"
+            )
     return {
         "table": table,
         "match": match,

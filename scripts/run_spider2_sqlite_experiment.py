@@ -91,7 +91,8 @@ def execute_sqlite(db_path: Path, sql: str, *, row_limit: int = 1000) -> SqlResu
 
 
 def row_signature(rows: Iterable[Sequence[Any]]) -> tuple:
-    return tuple(sorted(tuple(normalize_cell(v) for v in row) for row in rows))
+    normalized_rows = [tuple(normalize_cell(v) for v in row) for row in rows]
+    return tuple(sorted(normalized_rows, key=lambda row: tuple(repr(value) for value in row)))
 
 
 def extract_sql(text: str) -> str:
