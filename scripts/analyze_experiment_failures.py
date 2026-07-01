@@ -505,7 +505,7 @@ def write_markdown(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Diagnose BoyueSQL/Spider2 experiment failures")
+    parser = argparse.ArgumentParser(description="Diagnose EC-SQL/Spider2 experiment failures")
     parser.add_argument(
         "--inputs",
         nargs="+",

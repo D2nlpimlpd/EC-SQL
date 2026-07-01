@@ -47,11 +47,11 @@ class ServerSubmissionManifestTests(unittest.TestCase):
     def test_build_manifest_records_release_integrity_and_expected_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            archive = root / "boyuesql_spider2_server.zip"
+            archive = root / "ecsql_spider2_server.zip"
             with zipfile.ZipFile(archive, "w") as zf:
                 zf.writestr("placeholder.txt", "placeholder")
-            checksum = root / "boyuesql_spider2_server.sha256"
-            checksum.write_text("abc123  boyuesql_spider2_server.zip\n", encoding="utf-8")
+            checksum = root / "ecsql_spider2_server.sha256"
+            checksum.write_text("abc123  ecsql_spider2_server.zip\n", encoding="utf-8")
             manifest = root / "manifest.csv"
             with manifest.open("w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(
@@ -91,10 +91,10 @@ class ServerSubmissionManifestTests(unittest.TestCase):
             root = Path(tmp)
             payload = build_handoff(
                 host="alice@example.org",
-                remote_dir="~/boyuesql_run",
+                remote_dir="~/ecsql_run",
                 run_id="server_unit",
-                archive=root / "boyuesql_spider2_server.zip",
-                checksum=root / "boyuesql_spider2_server.sha256",
+                archive=root / "ecsql_spider2_server.zip",
+                checksum=root / "ecsql_spider2_server.sha256",
                 local_return_dir=root / "return",
                 dataset_root=root / "Spider2",
                 manifest=root / "spider2_manifest.csv",
@@ -116,7 +116,7 @@ class ServerSubmissionManifestTests(unittest.TestCase):
             self.assertIn("RUN_PACKET_ON_SERVER.sh background", all_commands)
             self.assertIn("RUN_PACKET_ON_SERVER.sh foreground", all_commands)
             self.assertIn("RUN_PACKET_ON_SERVER.sh diagnostics", all_commands)
-            self.assertIn("server_unit_upload_packet/boyuesql_spider2_server", all_commands)
+            self.assertIn("server_unit_upload_packet/ecsql_spider2_server", all_commands)
             self.assertIn("server_server_unit_result_bundle.zip", all_commands)
             self.assertIn("while true", all_commands)
             self.assertIn("server_job.pid", all_commands)
@@ -128,10 +128,10 @@ class ServerSubmissionManifestTests(unittest.TestCase):
             self.assertIn("disk_free_gb", all_commands)
             self.assertIn("REQUIRE_GPU", all_commands)
             self.assertIn("REQUIRE_OLLAMA", all_commands)
-            self.assertIn("cd ~/boyuesql_run", all_commands)
-            self.assertNotIn("cd '~/boyuesql_run'", all_commands)
+            self.assertIn("cd ~/ecsql_run", all_commands)
+            self.assertNotIn("cd '~/ecsql_run'", all_commands)
             text = handoff_markdown(payload)
-            self.assertIn("BoyueSQL Server Handoff Commands", text)
+            self.assertIn("EC-SQL Server Handoff Commands", text)
             self.assertIn("Server Background Run", text)
             self.assertIn("Wait For Background Result Bundle", text)
 
@@ -140,10 +140,10 @@ class ServerSubmissionManifestTests(unittest.TestCase):
             root = Path(tmp)
             payload = build_handoff(
                 host="alice@example.org",
-                remote_dir="~/boyuesql_run",
+                remote_dir="~/ecsql_run",
                 run_id="server_unit",
-                archive=root / "boyuesql_spider2_server.zip",
-                checksum=root / "boyuesql_spider2_server.sha256",
+                archive=root / "ecsql_spider2_server.zip",
+                checksum=root / "ecsql_spider2_server.sha256",
                 local_return_dir=root / "return",
                 dataset_root=root / "Spider2",
                 manifest=root / "spider2_manifest.csv",
@@ -167,11 +167,11 @@ class ServerSubmissionManifestTests(unittest.TestCase):
     def test_upload_packet_packages_release_and_handoff_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            archive = root / "boyuesql_spider2_server.zip"
+            archive = root / "ecsql_spider2_server.zip"
             with zipfile.ZipFile(archive, "w") as zf:
                 zf.writestr("placeholder.txt", "placeholder")
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-            checksum = root / "boyuesql_spider2_server.sha256"
+            checksum = root / "ecsql_spider2_server.sha256"
             checksum.write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
             manifest = root / "manifest.csv"
             with manifest.open("w", encoding="utf-8", newline="") as f:
@@ -189,7 +189,7 @@ class ServerSubmissionManifestTests(unittest.TestCase):
                 dataset_root=root,
                 manifest=manifest,
                 host="alice@example.org",
-                remote_dir="~/boyuesql_run",
+                remote_dir="~/ecsql_run",
                 local_return_dir=root / "return",
             )
             self.assertTrue(packet.exists())
@@ -200,7 +200,7 @@ class ServerSubmissionManifestTests(unittest.TestCase):
                 names = set(zf.namelist())
             self.assertIn("UPLOAD_PACKET_MANIFEST.json", names)
             self.assertIn("RUN_PACKET_ON_SERVER.sh", names)
-            self.assertIn("release/boyuesql_spider2_server.zip", names)
+            self.assertIn("release/ecsql_spider2_server.zip", names)
             self.assertIn("docs/server_unit_server_handoff_commands.md", names)
             self.assertIn("docs/server_unit_server_submission_manifest.md", names)
             self.assertIn("docs/server_server_unit_acceptance_contract.md", names)
@@ -212,8 +212,8 @@ class ServerSubmissionManifestTests(unittest.TestCase):
             with zipfile.ZipFile(packet, "w") as zf:
                 zf.writestr(
                     "UPLOAD_PACKET_MANIFEST.json",
-                    '{"files":[{"key":"release_archive","path":"release/boyuesql_spider2_server.zip","size_bytes":0,"sha256":""},'
-                    '{"key":"release_checksum","path":"release/boyuesql_spider2_server.sha256","size_bytes":0,"sha256":""},'
+                    '{"files":[{"key":"release_archive","path":"release/ecsql_spider2_server.zip","size_bytes":0,"sha256":""},'
+                    '{"key":"release_checksum","path":"release/ecsql_spider2_server.sha256","size_bytes":0,"sha256":""},'
                     '{"key":"handoff_md","path":"docs/handoff.md","size_bytes":0,"sha256":""},'
                     '{"key":"submission_md","path":"docs/submission.md","size_bytes":0,"sha256":""},'
                     '{"key":"dataset_md","path":"docs/dataset.md","size_bytes":0,"sha256":""},'
@@ -221,8 +221,8 @@ class ServerSubmissionManifestTests(unittest.TestCase):
                     '{"key":"run_packet_script","path":"RUN_PACKET_ON_SERVER.sh","size_bytes":0,"sha256":""}]}\n',
                 )
                 for name in [
-                    "release/boyuesql_spider2_server.zip",
-                    "release/boyuesql_spider2_server.sha256",
+                    "release/ecsql_spider2_server.zip",
+                    "release/ecsql_spider2_server.sha256",
                     "docs/handoff.md",
                     "docs/submission.md",
                     "docs/dataset.md",
@@ -243,8 +243,8 @@ class ServerSubmissionManifestTests(unittest.TestCase):
             with zipfile.ZipFile(packet, "w") as zf:
                 zf.writestr(
                     "UPLOAD_PACKET_MANIFEST.json",
-                    '{"files":[{"key":"release_archive","path":"release/boyuesql_spider2_server.zip","size_bytes":0,"sha256":""},'
-                    '{"key":"release_checksum","path":"release/boyuesql_spider2_server.sha256","size_bytes":0,"sha256":""},'
+                    '{"files":[{"key":"release_archive","path":"release/ecsql_spider2_server.zip","size_bytes":0,"sha256":""},'
+                    '{"key":"release_checksum","path":"release/ecsql_spider2_server.sha256","size_bytes":0,"sha256":""},'
                     '{"key":"handoff_md","path":"docs/handoff.md","size_bytes":0,"sha256":""},'
                     '{"key":"submission_md","path":"docs/submission.md","size_bytes":0,"sha256":""},'
                     '{"key":"dataset_md","path":"docs/dataset.md","size_bytes":0,"sha256":""},'
@@ -253,8 +253,8 @@ class ServerSubmissionManifestTests(unittest.TestCase):
                     '{"key":"readiness_audit","path":"datasets/private.sqlite","size_bytes":0,"sha256":""}]}\n',
                 )
                 for name in [
-                    "release/boyuesql_spider2_server.zip",
-                    "release/boyuesql_spider2_server.sha256",
+                    "release/ecsql_spider2_server.zip",
+                    "release/ecsql_spider2_server.sha256",
                     "docs/handoff.md",
                     "docs/submission.md",
                     "docs/dataset.md",

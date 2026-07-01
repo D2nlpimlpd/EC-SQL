@@ -1459,7 +1459,7 @@ def comment_unsupported_top_level_refs_blocks(case_dir: Path) -> List[Dict[str, 
                 in_models = False
 
             if in_models and indent == 2 and stripped == "refs:":
-                repaired.append("  # BoyueSQL disabled an unsupported schema-level refs block before dbt parse.")
+                repaired.append("  # EC-SQL disabled an unsupported schema-level refs block before dbt parse.")
                 repaired.append(comment_yaml_line(line))
                 in_disabled_refs = True
                 refs_indent = indent
@@ -7631,7 +7631,7 @@ def synthesize_most_rank_sql(
         "{{ config(materialized='table') }}\n\n"
         "with source_rows as (\n"
         "  select\n"
-        f"    row_number() over (order by {source_order}) as __boyuesql_source_order,\n"
+        f"    row_number() over (order by {source_order}) as __ecsql_source_order,\n"
         "    *\n"
         "  from "
         + str(summary.get("expr") or "")
@@ -7639,7 +7639,7 @@ def synthesize_most_rank_sql(
         "), ranked as (\n"
         "  select\n"
         + ",\n".join(projections)
-        + ",\n    __boyuesql_source_order\n"
+        + ",\n    __ecsql_source_order\n"
         "  from source_rows"
         + f"\n  where {quote_duckdb_identifier(metric)} is not null\n"
         ")\n"
@@ -7647,7 +7647,7 @@ def synthesize_most_rank_sql(
         + ", ".join(quote_duckdb_identifier(column) for column in columns)
         + "\n"
         "from ranked\n"
-        "order by rank, __boyuesql_source_order\n"
+        "order by rank, __ecsql_source_order\n"
         "limit 20\n"
     )
 
@@ -9354,10 +9354,10 @@ def source_latest_cte_sql(candidate: Dict[str, Any], entity: str) -> tuple[str, 
         "  from (\n"
         "    select\n"
         "      *,\n"
-        f"      row_number() over (partition by {quote_duckdb_identifier(id_col)} order by {order_expr}) as __boyuesql_latest_rank\n"
+        f"      row_number() over (partition by {quote_duckdb_identifier(id_col)} order by {order_expr}) as __ecsql_latest_rank\n"
         "    from entity_source\n"
         "  )\n"
-        "  where __boyuesql_latest_rank = 1\n"
+        "  where __ecsql_latest_rank = 1\n"
         ")"
     )
     return cte, "entity", columns
@@ -10654,7 +10654,7 @@ def synthesize_quickbooks_general_ledger_sql(
         "    ) }}\n"
         "), ledger as (\n"
         "    select\n"
-        "        row_number() over () as __boyuesql_source_order,\n"
+        "        row_number() over () as __ecsql_source_order,\n"
         "        transaction_id,\n"
         "        source_relation,\n"
         "        \"index\" as transaction_index,\n"
@@ -10700,7 +10700,7 @@ def synthesize_quickbooks_general_ledger_sql(
         "                    when lower(coalesce(transaction_source, '')) = 'deposit' then 1\n"
         "                    else 2\n"
         "                end,\n"
-        "                case when lower(coalesce(transaction_source, '')) = 'bill payment' and account_id is not null then -try_cast(transaction_id as double) else __boyuesql_source_order end\n"
+        "                case when lower(coalesce(transaction_source, '')) = 'bill payment' and account_id is not null then -try_cast(transaction_id as double) else __ecsql_source_order end\n"
         "            rows between unbounded preceding and current row\n"
         "        ) as running_balance,\n"
         "        sum(adjusted_converted_amount) over (\n"
@@ -10711,7 +10711,7 @@ def synthesize_quickbooks_general_ledger_sql(
         "                    when lower(coalesce(transaction_source, '')) = 'deposit' then 1\n"
         "                    else 2\n"
         "                end,\n"
-        "                case when lower(coalesce(transaction_source, '')) = 'bill payment' and account_id is not null then -try_cast(transaction_id as double) else __boyuesql_source_order end\n"
+        "                case when lower(coalesce(transaction_source, '')) = 'bill payment' and account_id is not null then -try_cast(transaction_id as double) else __ecsql_source_order end\n"
         "            rows between unbounded preceding and current row\n"
         "        ) as running_converted_balance\n"
         "    from joined\n"
@@ -11412,7 +11412,7 @@ def apply_declared_column_completion(case_dir: Path) -> List[Dict[str, Any]]:
         if not columns:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if "__boyuesql_base" in text:
+        if "__ecsql_base" in text:
             continue
         passthrough_columns = star_passthrough_columns(case_dir, model_name, text)
         available_columns = list(dict.fromkeys(passthrough_columns + sql_alias_columns(text)))
@@ -11433,13 +11433,13 @@ def apply_declared_column_completion(case_dir: Path) -> List[Dict[str, Any]]:
             for col in missing
         )
         completed = (
-            f"{prefix}with __boyuesql_base as (\n"
+            f"{prefix}with __ecsql_base as (\n"
             f"{indent_sql(body)}\n"
             ")\n"
             "select\n"
-            "    __boyuesql_base.*,\n"
+            "    __ecsql_base.*,\n"
             f"    {additions}\n"
-            "from __boyuesql_base\n"
+            "from __ecsql_base\n"
         )
         path.write_text(completed, encoding="utf-8", newline="\n")
         applied.append(
@@ -11998,7 +11998,7 @@ def apply_missing_raw_table_placeholders(case_dir: Path, db_path: Path | None, d
                 continue
             conn.execute(
                 f"create table if not exists main.{quote_duckdb_identifier(table_name)} "
-                "(__boyuesql_placeholder varchar)"
+                "(__ecsql_placeholder varchar)"
             )
             available.add(("main", table_lower))
             applied.append(
@@ -12165,7 +12165,7 @@ def apply_lowercase_columns_macro(case_dir: Path) -> List[Dict[str, Any]]:
             needs_macro = True
     if not needs_macro or macro_exists:
         return []
-    target = safe_edit_path(case_dir, "macros/boyuesql_lowercase_columns.sql")
+    target = safe_edit_path(case_dir, "macros/ecsql_lowercase_columns.sql")
     content = (
         "{% macro lowercase_columns(columns) -%}\n"
         "{%- for column in columns -%}\n"
@@ -12239,7 +12239,7 @@ def apply_common_compat_macros(case_dir: Path) -> List[Dict[str, Any]]:
     needed = sorted(name for name in called if name not in existing)
     if not needed:
         return []
-    target = safe_edit_path(case_dir, "macros/boyuesql_common_compat.sql")
+    target = safe_edit_path(case_dir, "macros/ecsql_common_compat.sql")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("\n".join(COMMON_COMPAT_MACROS[name] for name in needed), encoding="utf-8", newline="\n")
     return [
@@ -12375,7 +12375,7 @@ def apply_failed_model_placeholders(case_dir: Path, dbt_error: str) -> List[Dict
         if not target:
             continue
         original = target.read_text(encoding="utf-8", errors="ignore")
-        if "BoyueSQL final execution-safety fallback" in original:
+        if "EC-SQL final execution-safety fallback" in original:
             continue
         model_name = target.stem
         columns = (
@@ -12386,7 +12386,7 @@ def apply_failed_model_placeholders(case_dir: Path, dbt_error: str) -> List[Dict
         target.write_text(
             placeholder_model_sql(
                 columns,
-                "BoyueSQL final execution-safety fallback for a persistently failing model.",
+                "EC-SQL final execution-safety fallback for a persistently failing model.",
                 config_schema=fallback_model_schema(case_dir),
             ),
             encoding="utf-8",
@@ -12450,7 +12450,7 @@ def apply_missing_table_model_placeholders(case_dir: Path, dbt_error: str, start
         target.write_text(
             placeholder_model_sql(
                 columns,
-                "BoyueSQL fallback for a missing raw/source table.",
+                "EC-SQL fallback for a missing raw/source table.",
                 config_schema=fallback_model_schema(case_dir),
             ),
             encoding="utf-8",
@@ -12488,7 +12488,7 @@ def apply_missing_source_definitions(case_dir: Path, start_db: Path | None, dbt_
         lines.extend([f"  - name: {source_name}", f"    schema: {schema}", "    tables:"])
         for table_name, _schema, identifier in sorted(tables):
             lines.extend([f"      - name: {table_name}", f"        identifier: {identifier}"])
-    target = safe_edit_path(case_dir, "models/_boyuesql_sources.yml")
+    target = safe_edit_path(case_dir, "models/_ecsql_sources.yml")
     target.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return [
         {
@@ -12629,17 +12629,17 @@ def pin_spider2_calendar_current_date(case_dir: Path, fixed_date: str) -> List[D
             + fixed_date
             + '\') ~ "\' as date) + 1)"'
         )
-        if 'end_date="current_date"' in text and "boyuesql_calendar_end_date" not in text:
+        if 'end_date="current_date"' in text and "ecsql_calendar_end_date" not in text:
             text = re.sub(
                 r"(\{%\s*set\s+start_date\s*=.*?%\}\s*)",
-                r"\1\n{% set boyuesql_calendar_end_date = var('shopify__calendar_end_date', env_var('SPIDER2_DBT_CURRENT_DATE', '"
+                r"\1\n{% set ecsql_calendar_end_date = var('shopify__calendar_end_date', env_var('SPIDER2_DBT_CURRENT_DATE', '"
                 + fixed_date
                 + r"')) %}\n",
                 text,
                 count=1,
                 flags=re.DOTALL,
             )
-        text = text.replace('end_date="current_date"', 'end_date="cast(\'" ~ boyuesql_calendar_end_date ~ "\' as date)"')
+        text = text.replace('end_date="current_date"', 'end_date="cast(\'" ~ ecsql_calendar_end_date ~ "\' as date)"')
         text = text.replace(
             'from_date_or_timestamp="current_date"',
             'from_date_or_timestamp="cast(\'" ~ env_var(\'SPIDER2_DBT_CURRENT_DATE\', \''
@@ -13577,7 +13577,7 @@ def main() -> int:
     parser.add_argument("--dbt-deps-each-round", action="store_true", help="Run dbt deps before every repair round instead of only the first round")
     parser.add_argument("--keep-workdir", action="store_true")
     parser.add_argument("--ignore-column-names", action="store_true")
-    parser.add_argument("--model", default=os.environ.get("BOYUESQL_LLM_MODEL", "qwen2.5-coder:7b"))
+    parser.add_argument("--model", default=os.environ.get("EC_SQL_LLM_MODEL", "qwen2.5-coder:7b"))
     parser.add_argument("--ollama-base-url", default=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
     parser.add_argument("--ollama-api", choices=["generate", "chat"], default="generate")
     parser.add_argument("--num-predict", type=int, default=4096)

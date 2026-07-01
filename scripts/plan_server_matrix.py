@@ -11,16 +11,16 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-DEFAULT_SQLITE_SYSTEMS = "boyuesql,no_semantic_templates,no_external_knowledge,no_schema_retrieval,no_repair"
+DEFAULT_SQLITE_SYSTEMS = "ecsql,no_semantic_templates,no_external_knowledge,no_schema_retrieval,no_repair"
 DEFAULT_SQLITE_BASELINES = "direct,din_sql_style,dail_sql_style,self_debug_style,mac_sql_style,chess_style"
 DBT_ABLATION_LABELS = [
-    "boyuesql_ablation_no_declared_model_synthesis",
-    "boyuesql_ablation_no_duckdb_type_repair",
-    "boyuesql_ablation_no_missing_ref_source_fallback",
-    "boyuesql_ablation_no_declared_column_completion",
-    "boyuesql_ablation_no_related_dimension_enrichment",
-    "boyuesql_ablation_no_fact_pivot_synthesis",
-    "boyuesql_ablation_no_final_failed_model_placeholder",
+    "ecsql_ablation_no_declared_model_synthesis",
+    "ecsql_ablation_no_duckdb_type_repair",
+    "ecsql_ablation_no_missing_ref_source_fallback",
+    "ecsql_ablation_no_declared_column_completion",
+    "ecsql_ablation_no_related_dimension_enrichment",
+    "ecsql_ablation_no_fact_pivot_synthesis",
+    "ecsql_ablation_no_final_failed_model_placeholder",
 ]
 
 
@@ -41,9 +41,9 @@ def slugify(text: str) -> str:
 
 
 def full_profile_config(run_id: str, out_dir: Path) -> dict[str, Any]:
-    boyuesql_models = value("BOYUESQL_MODELS", value("BOYUESQL_MODEL", "qwen3-vl:8b"))
+    ecsql_models = value("EC_SQL_MODELS", value("EC_SQL_MODEL", "qwen3-vl:8b"))
     baseline_models = value("BASELINE_MODELS", value("BASELINE_MODEL", "qwen2.5-coder:7b") + ",sqlcoder:7b")
-    dbt_edit_models = value("DBT_EDIT_MODELS", boyuesql_models)
+    dbt_edit_models = value("DBT_EDIT_MODELS", ecsql_models)
     return {
         "RUN_ID": run_id,
         "OUT_DIR": str(out_dir),
@@ -51,7 +51,7 @@ def full_profile_config(run_id: str, out_dir: Path) -> dict[str, Any]:
         "RUN_SQLITE_SCHEMA_ONLY": value("RUN_SQLITE_SCHEMA_ONLY", "1"),
         "RUN_SQLITE_LLM": value("RUN_SQLITE_LLM", "1"),
         "RUN_DBT_BASELINE": value("RUN_DBT_BASELINE", "1"),
-        "RUN_DBT_BOYUESQL": value("RUN_DBT_BOYUESQL", "1"),
+        "RUN_DBT_EC_SQL": value("RUN_DBT_EC_SQL", "1"),
         "RUN_DBT_ABLATIONS": value("RUN_DBT_ABLATIONS", "1"),
         "RUN_DBT_LLM": value("RUN_DBT_LLM", "0"),
         "SQLITE_SMOKE_LIMIT": value("SQLITE_SMOKE_LIMIT", "135"),
@@ -61,10 +61,10 @@ def full_profile_config(run_id: str, out_dir: Path) -> dict[str, Any]:
         "SQLITE_GOLD_CASE_LIMIT": value("SQLITE_GOLD_CASE_LIMIT", "0"),
         "SQLITE_GOLD_CASE_OFFSET": value("SQLITE_GOLD_CASE_OFFSET", "0"),
         "DBT_BASELINE_LIMIT": value("DBT_BASELINE_LIMIT", "68"),
-        "DBT_BOYUESQL_LIMIT": value("DBT_BOYUESQL_LIMIT", "68"),
+        "DBT_EC_SQL_LIMIT": value("DBT_EC_SQL_LIMIT", "68"),
         "DBT_ABLATION_LIMIT": value("DBT_ABLATION_LIMIT", "68"),
         "DBT_LLM_LIMIT": value("DBT_LLM_LIMIT", "68"),
-        "BOYUESQL_MODELS": boyuesql_models,
+        "EC_SQL_MODELS": ecsql_models,
         "BASELINE_MODELS": baseline_models,
         "DBT_EDIT_MODELS": dbt_edit_models,
         "SQLITE_SYSTEMS": value("SQLITE_SYSTEMS", DEFAULT_SQLITE_SYSTEMS),
@@ -121,11 +121,11 @@ def expected_artifacts(config: dict[str, Any]) -> list[dict[str, str]]:
         )
     )
     if config["RUN_SQLITE_LLM"] == "1":
-        for model in split_csv(config["BOYUESQL_MODELS"]):
+        for model in split_csv(config["EC_SQL_MODELS"]):
             rows.append(
                 artifact_row(
-                    "sqlite_boyuesql_ablations",
-                    f"spider2_sqlite_boyuesql_ablation_{slugify(model)}.json",
+                    "sqlite_ecsql_ablations",
+                    f"spider2_sqlite_ecsql_ablation_{slugify(model)}.json",
                     "spider2-sqlite",
                     config["SQLITE_SYSTEMS"],
                     model,
@@ -158,13 +158,13 @@ def expected_artifacts(config: dict[str, Any]) -> list[dict[str, str]]:
     )
     rows.append(
         artifact_row(
-            "dbt_boyuesql_full",
-            "spider2_dbt_llm_edit_boyuesql_deterministic_full.json",
+            "dbt_ecsql_full",
+            "spider2_dbt_llm_edit_ecsql_deterministic_full.json",
             "spider2-dbt",
-            "boyuesql_deterministic_full",
+            "ecsql_deterministic_full",
             "deterministic",
-            config["DBT_BOYUESQL_LIMIT"],
-            config["RUN_DBT_BOYUESQL"] == "1",
+            config["DBT_EC_SQL_LIMIT"],
+            config["RUN_DBT_EC_SQL"] == "1",
         )
     )
     if config["RUN_DBT_ABLATIONS"] == "1":
@@ -211,8 +211,8 @@ def coverage_summary(config: dict[str, Any], rows: list[dict[str, str]]) -> dict
     dbt_ablations = DBT_ABLATION_LABELS if config["RUN_DBT_ABLATIONS"] == "1" else []
     checks = [
         {
-            "requirement": "SQLite BoyueSQL full row with >=20 gold cases",
-            "value": int("boyuesql" in sqlite_systems and int_value(config["SQLITE_LLM_LIMIT"]) >= 20),
+            "requirement": "SQLite EC-SQL full row with >=20 gold cases",
+            "value": int("ecsql" in sqlite_systems and int_value(config["SQLITE_LLM_LIMIT"]) >= 20),
             "threshold": 1,
         },
         {
@@ -236,8 +236,8 @@ def coverage_summary(config: dict[str, Any], rows: list[dict[str, str]]) -> dict
             "threshold": 1,
         },
         {
-            "requirement": "DBT BoyueSQL deterministic full with 68 cases",
-            "value": int(config["RUN_DBT_BOYUESQL"] == "1" and int_value(config["DBT_BOYUESQL_LIMIT"]) >= 68),
+            "requirement": "DBT EC-SQL deterministic full with 68 cases",
+            "value": int(config["RUN_DBT_EC_SQL"] == "1" and int_value(config["DBT_EC_SQL_LIMIT"]) >= 68),
             "threshold": 1,
         },
         {
@@ -252,7 +252,7 @@ def coverage_summary(config: dict[str, Any], rows: list[dict[str, str]]) -> dict
         "run_id": config["RUN_ID"],
         "enabled_artifact_count": len(enabled),
         "sqlite_case_limit": int_value(config["SQLITE_LLM_LIMIT"]),
-        "dbt_case_limit": int_value(config["DBT_BOYUESQL_LIMIT"]),
+        "dbt_case_limit": int_value(config["DBT_EC_SQL_LIMIT"]),
         "sqlite_systems": sqlite_systems,
         "sqlite_baseline_systems": sqlite_baseline_systems,
         "baseline_models": baseline_models,
@@ -349,7 +349,7 @@ def coverage_markdown(coverage: dict[str, Any]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Plan the full BoyueSQL Spider2 server experiment matrix.")
+    parser = argparse.ArgumentParser(description="Plan the full EC-SQL Spider2 server experiment matrix.")
     parser.add_argument("--run-id", default=os.environ.get("RUN_ID", "server_full_spider2"))
     parser.add_argument("--out-dir", default=os.environ.get("OUT_DIR", ""))
     parser.add_argument("--json", action="store_true")

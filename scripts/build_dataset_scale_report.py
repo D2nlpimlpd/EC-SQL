@@ -162,7 +162,7 @@ def to_markdown(report: DatasetScaleReport) -> str:
             counts_rows,
             "",
             "This report is generated directly from the local Spider2 manifest. "
-            "It documents the broad benchmark scale used for BoyueSQL generalization "
+            "It documents the broad benchmark scale used for EC-SQL generalization "
             "and is separate from execution/SER evidence, which is produced by the "
             "benchmark and server-result reports.",
             "",

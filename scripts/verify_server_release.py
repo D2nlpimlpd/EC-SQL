@@ -11,10 +11,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_FILES = [
-    "boyuesql_service.py",
-    "boyuesql_generic/dialects.py",
-    "boyuesql_generic/dictionary.py",
-    "boyuesql_generic/connections.py",
+    "ecsql_service.py",
+    "ecsql_generic/dialects.py",
+    "ecsql_generic/dictionary.py",
+    "ecsql_generic/connections.py",
     "scripts/setup_linux.sh",
     "scripts/one_click_linux.sh",
     "scripts/server_preflight.py",
@@ -55,7 +55,7 @@ REQUIRED_FILES = [
     "SERVER_RELEASE_MANIFEST.txt",
     "SERVER_RUNBOOK.md",
     "SERVER_MODEL_GUIDE.md",
-    "boyuesql_spider2_abstract.tex",
+    "ecsql_spider2_abstract.tex",
     "requirements-oracle.txt",
     "constraints-server.txt",
     "baselines/baseline_manifest.json",
@@ -74,7 +74,7 @@ FORBIDDEN_ROOTS = {
 }
 
 ALLOWED_TEX_FILES = {
-    "boyuesql_spider2_abstract.tex",
+    "ecsql_spider2_abstract.tex",
 }
 
 FORBIDDEN_RELEASE_FILENAMES = {
@@ -82,13 +82,13 @@ FORBIDDEN_RELEASE_FILENAMES = {
     "ase_raganything_updated.tex",
     "ase_raganything_updated_zh.tex",
     "backup.tex",
-    "boyuesql_icdm_merged_figures.tex",
-    "boyuesql_icdm_merged_figures_package.zip",
+    "ecsql_icdm_merged_figures.tex",
+    "ecsql_icdm_merged_figures_package.zip",
     "overleaf.tex",
     "paper_multiagent_nl2sql.tex",
-    "figure1_boyuesql.pdf",
-    "figure1_boyuesql.png",
-    "figure1_boyuesql.svg",
+    "figure1_ecsql.pdf",
+    "figure1_ecsql.png",
+    "figure1_ecsql.svg",
     "schema_kg.pdf",
     "schema_kg.png",
     "xiezuo.pdf",
@@ -222,26 +222,26 @@ def verify_archive(archive: Path, checksum_path: Path, prefix: str) -> list[str]
         one_click_name = f"{prefix}/scripts/one_click_linux.sh" if prefix else "scripts/one_click_linux.sh"
         compose_name = f"{prefix}/docker-compose.yml" if prefix else "docker-compose.yml"
         env_name = f"{prefix}/.env.example" if prefix else ".env.example"
-        service_name = f"{prefix}/boyuesql_service.py" if prefix else "boyuesql_service.py"
+        service_name = f"{prefix}/ecsql_service.py" if prefix else "ecsql_service.py"
         dockerfile = zf.read(dockerfile_name).decode("utf-8", errors="ignore")
         start_script = zf.read(start_name).decode("utf-8", errors="ignore")
         one_click = zf.read(one_click_name).decode("utf-8", errors="ignore")
         compose = zf.read(compose_name).decode("utf-8", errors="ignore")
         env_example = zf.read(env_name).decode("utf-8", errors="ignore")
         service = zf.read(service_name).decode("utf-8", errors="ignore")
-        if "APP_ENTRY=boyuesql_service.py" not in dockerfile:
-            errors.append("Dockerfile does not default APP_ENTRY to boyuesql_service.py")
-        if 'APP_ENTRY="${APP_ENTRY:-boyuesql_service.py}"' not in start_script:
-            errors.append("start_linux.sh does not default APP_ENTRY to boyuesql_service.py")
+        if "APP_ENTRY=ecsql_service.py" not in dockerfile:
+            errors.append("Dockerfile does not default APP_ENTRY to ecsql_service.py")
+        if 'APP_ENTRY="${APP_ENTRY:-ecsql_service.py}"' not in start_script:
+            errors.append("start_linux.sh does not default APP_ENTRY to ecsql_service.py")
         env_assignments = {
             line.strip().lower()
             for line in env_example.splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         }
-        if "boyuesql_dialect=oracle" in env_assignments:
+        if "ecsql_dialect=oracle" in env_assignments:
             errors.append(".env.example defaults to Oracle instead of a generic/local dialect")
-        if 'default_dialect=os.environ.get("BOYUESQL_DIALECT", "oracle")' in service:
-            errors.append("boyuesql_service.py defaults runtime_config to Oracle")
+        if 'default_dialect=os.environ.get("EC_SQL_DIALECT", "oracle")' in service:
+            errors.append("ecsql_service.py defaults runtime_config to Oracle")
         for required_mode in (
             "models)",
             "plan)",
@@ -280,10 +280,10 @@ def verify_archive(archive: Path, checksum_path: Path, prefix: str) -> list[str]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify a clean BoyueSQL server release package.")
-    parser.add_argument("--archive", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.zip"))
-    parser.add_argument("--checksum", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.sha256"))
-    parser.add_argument("--prefix", default="boyuesql_spider2_server")
+    parser = argparse.ArgumentParser(description="Verify a clean EC-SQL server release package.")
+    parser.add_argument("--archive", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.zip"))
+    parser.add_argument("--checksum", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.sha256"))
+    parser.add_argument("--prefix", default="ecsql_spider2_server")
     args = parser.parse_args()
 
     errors = verify_archive(Path(args.archive), Path(args.checksum), args.prefix)

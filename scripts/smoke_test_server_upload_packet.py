@@ -63,7 +63,7 @@ def smoke_upload_packet(
 
     notes: list[str] = []
     notes.append("packet_manifest_layout=PASS")
-    with tempfile.TemporaryDirectory(prefix="boyuesql_packet_smoke_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ecsql_packet_smoke_") as tmp:
         root = extract_packet(packet, Path(tmp) / "packet")
         notes.append(f"packet_extracted={root}")
         manifest = json.loads((root / "UPLOAD_PACKET_MANIFEST.json").read_text(encoding="utf-8"))
@@ -91,7 +91,7 @@ def smoke_upload_packet(
         missing_script_terms = [term for term in required_script_terms if term not in run_script_text]
         if missing_script_terms:
             raise RuntimeError(f"RUN_PACKET_ON_SERVER.sh is incomplete; missing {missing_script_terms}")
-        if "rm -rf boyuesql_spider2_server" in run_script_text:
+        if "rm -rf ecsql_spider2_server" in run_script_text:
             raise RuntimeError("RUN_PACKET_ON_SERVER.sh contains an unconditional destructive release reset")
         bash_path = find_bash()
         if bash_path:
@@ -103,7 +103,7 @@ def smoke_upload_packet(
                 run_checked([str(bash_path), str(run_script), "doctor"], root, env=env)
                 notes.append("packet_run_script_doctor=PASS")
             if run_diagnostics:
-                project_dir = root / "boyuesql_spider2_server"
+                project_dir = root / "ecsql_spider2_server"
                 if not run_id:
                     raise RuntimeError("cannot run diagnostics smoke because packet manifest has no run_id")
                 write_fake_pending_run(project_dir, run_id)
@@ -138,24 +138,24 @@ def smoke_upload_packet(
             "RUN_PACKET_ON_SERVER.sh background",
             "RUN_PACKET_ON_SERVER.sh status",
             "RUN_PACKET_ON_SERVER.sh diagnostics",
-            "boyuesql_spider2_server/artifacts/server_runs",
+            "ecsql_spider2_server/artifacts/server_runs",
         ]
         missing_terms = [term for term in required_handoff_terms if term not in handoff_text]
         if missing_terms:
             raise RuntimeError(f"handoff command sheet is not packet-native; missing {missing_terms}")
         notes.append("packet_handoff_doc=PASS")
 
-        release_archive = root / "release" / "boyuesql_spider2_server.zip"
-        release_checksum = root / "release" / "boyuesql_spider2_server.sha256"
+        release_archive = root / "release" / "ecsql_spider2_server.zip"
+        release_checksum = root / "release" / "ecsql_spider2_server.sha256"
         if not release_archive.exists() or not release_checksum.exists():
             raise RuntimeError("packet does not contain release archive and checksum under release/")
-        for note in smoke_release(release_archive, release_checksum, "boyuesql_spider2_server"):
+        for note in smoke_release(release_archive, release_checksum, "ecsql_spider2_server"):
             notes.append(f"release_{note}")
     return notes
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="End-to-end smoke-test a BoyueSQL server upload packet.")
+    parser = argparse.ArgumentParser(description="End-to-end smoke-test a EC-SQL server upload packet.")
     parser.add_argument("--packet", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "server_full_spider2_server_upload_packet.zip"))
     parser.add_argument("--checksum", default="", help="Defaults to PACKET with .sha256 suffix.")
     parser.add_argument(

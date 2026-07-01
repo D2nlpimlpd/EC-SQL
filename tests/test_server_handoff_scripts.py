@@ -111,7 +111,7 @@ class ServerHandoffScriptTests(unittest.TestCase):
         self.assertIn("SERVER_MODEL_GUIDE.md", text)
         self.assertIn("smoke_test_server_upload_packet.py", text)
         self.assertIn("smoke_test_server_acceptance_flow.py", text)
-        self.assertIn("boyuesql_spider2_abstract.tex", text)
+        self.assertIn("ecsql_spider2_abstract.tex", text)
         self.assertIn("write_submission_manifest", text)
         self.assertIn("build_server_submission_manifest", text)
         self.assertIn("requirements-oracle.txt", text)
@@ -139,7 +139,7 @@ class ServerHandoffScriptTests(unittest.TestCase):
         self.assertIn("Qwen/Qwen3-32B", hf_download)
         self.assertIn("snapshot_download", hf_download)
         self.assertIn("expected_artifacts.csv", plan)
-        self.assertIn("spider2_sqlite_boyuesql_ablation_", plan)
+        self.assertIn("spider2_sqlite_ecsql_ablation_", plan)
         self.assertIn("nohup env RUN_ID", launch)
         self.assertIn("plan_server_matrix.py", launch)
         self.assertIn("server_job.pid", launch)
@@ -169,7 +169,7 @@ class ServerHandoffScriptTests(unittest.TestCase):
         self.assertIn("import_bundle", bundle_import)
         self.assertIn("finalize_server_result", finalizer)
         self.assertIn("server_run_dir", finalizer)
-        self.assertIn("boyuesql_spider2_server_result_abstract.tex", finalizer)
+        self.assertIn("ecsql_spider2_server_result_abstract.tex", finalizer)
         self.assertIn("check_server_matrix", bundle_import)
         self.assertIn("unsafe archive path", bundle_import)
         self.assertIn("bash -n", shell_check)
@@ -339,7 +339,7 @@ class ServerHandoffScriptTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn("server_unit_server_upload_packet.zip", completed.stdout)
         self.assertIn("server_unit_server_upload_packet.sha256", completed.stdout)
-        self.assertNotIn("boyuesql_spider2_server.zip E:", completed.stdout)
+        self.assertNotIn("ecsql_spider2_server.zip E:", completed.stdout)
 
     def test_handoff_runner_remote_preflight_dry_run_checks_server_basics(self) -> None:
         completed = subprocess.run(
@@ -392,7 +392,7 @@ class ServerHandoffScriptTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn("server_unit_upload_packet", completed.stdout)
         self.assertIn("RUN_PACKET_ON_SERVER.sh background", completed.stdout)
-        self.assertNotIn("cd boyuesql_spider2_server", completed.stdout)
+        self.assertNotIn("cd ecsql_spider2_server", completed.stdout)
 
     def test_handoff_runner_doctor_dry_run_reextracts_current_packet(self) -> None:
         completed = subprocess.run(

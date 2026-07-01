@@ -89,7 +89,7 @@ def build_handoff(
     packet_checksum_name = packet_checksum.name
     packet_dir = f"{run_id}_upload_packet"
     packet_remote = remote_join(remote_dir, packet_dir)
-    project_remote = remote_join(packet_remote, "boyuesql_spider2_server")
+    project_remote = remote_join(packet_remote, "ecsql_spider2_server")
     summary_remote = remote_join(project_remote, "artifacts", "server_runs", run_id, "summary")
     run_remote = remote_join(project_remote, "artifacts", "server_runs", run_id)
     bundle_name = result_bundle_name(run_id)
@@ -242,7 +242,7 @@ def fenced_block(lang: str, commands: list[str]) -> list[str]:
 
 def markdown(payload: dict[str, Any]) -> str:
     lines = [
-        f"# BoyueSQL Server Handoff Commands: {payload['run_id']}",
+        f"# EC-SQL Server Handoff Commands: {payload['run_id']}",
         "",
         f"- Host: `{payload['host']}`",
         f"- Remote directory: `{payload['remote_dir']}`",
@@ -327,9 +327,9 @@ def write_handoff(payload: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate upload/run/download commands for a BoyueSQL Linux server run.")
+    parser = argparse.ArgumentParser(description="Generate upload/run/download commands for a EC-SQL Linux server run.")
     parser.add_argument("--host", default="user@server.example.com", help="SSH target, e.g. user@host.")
-    parser.add_argument("--remote-dir", default="~/boyuesql_spider2_run")
+    parser.add_argument("--remote-dir", default="~/ecsql_spider2_run")
     parser.add_argument("--run-id", default="server_full_spider2")
     parser.add_argument("--archive", default=str(DEFAULT_RELEASE))
     parser.add_argument("--checksum", default=str(DEFAULT_CHECKSUM))

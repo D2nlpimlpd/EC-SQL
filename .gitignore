@@ -47,7 +47,7 @@ datasets/
 *.gif
 *.ipynb
 !figures/
-!figures/boyuesql_workflow.pdf
+!figures/ecsql_workflow.pdf
 
 # Local scratch outputs
 tail.txt
@@ -89,7 +89,7 @@ baselines/SQLCoder/
 !baselines/
 !baselines/baseline_manifest.json
 
-# Heavy vendored UI assets that are not used by BoyueSQL experiments
+# Heavy vendored UI assets that are not used by EC-SQL experiments
 third_party/lightrag_hku-1.5.0/lightrag/api/webui/
 third_party/lightrag_hku-1.5.0/lightrag/api/static/
 third_party/*/*.egg-info/

@@ -1,10 +1,10 @@
 \begin{abstract}
 Enterprise text-to-SQL systems must generalize across heterogeneous schemas,
 execution engines, and analytical project structures while remaining usable
-under local-resource and privacy constraints. We present \emph{BoyueSQL}, a
+under local-resource and privacy constraints. We present \emph{EC-SQL}, a
 generalized evidence-grounded text-to-SQL framework that removes
 deployment-specific schema assumptions and treats SQL generation as
-evidence-constrained program synthesis. BoyueSQL constructs schema evidence
+evidence-constrained program synthesis. EC-SQL constructs schema evidence
 from database dictionaries and project metadata, retrieves bounded
 table--column--relation context through a customized RagAnything/LightRAG
 schema knowledge graph, validates generated identifiers against active
@@ -14,13 +14,13 @@ framework further performs deterministic model synthesis, dependency
 validation, DuckDB-aware type and syntax repair, custom-schema-aware fallback
 generation, and result-set fingerprinting for large outputs.
 
-We evaluate BoyueSQL on Spider2 using a local manifest with 1,162 task
+We evaluate EC-SQL on Spider2 using a local manifest with 1,162 task
 entries, the no-credential Spider2-DBT subset, and the locally executable
-Spider2-Lite SQLite gold cases. On 68 DBT tasks, BoyueSQL achieves 100.0\%
+Spider2-Lite SQLite gold cases. On 68 DBT tasks, EC-SQL achieves 100.0\%
 execution success and 67.74\% semantic pass rate over 62 gold-evaluable cases;
 the remaining failures are semantic result mismatches rather than
 missing-table or runtime-execution failures. On all 24 locally executable
-SQLite gold cases in the current Spider2-Lite slice, BoyueSQL with
+SQLite gold cases in the current Spider2-Lite slice, EC-SQL with
 \texttt{qwen2.5-coder:7b} achieves 100.0\% execution success, 100.0\% exact
 result match, and 100.0\% semantic pass rate. On the first 20 SQLite gold
 cases, removing deterministic semantic templates reduces semantic pass rate to
@@ -33,7 +33,7 @@ result-level semantic evidence. We additionally provide a Linux-ready server
 package with one-click environment installation, Spider2 dataset preparation,
 Ollama and HuggingFace model download, benchmark execution, service startup,
 ablation control, result-bundle validation, and a default server matrix that
-compares BoyueSQL against \texttt{qwen2.5-coder:7b}, \texttt{sqlcoder:7b},
+compares EC-SQL against \texttt{qwen2.5-coder:7b}, \texttt{sqlcoder:7b},
 and \texttt{qwen3:32b} baselines before importing the validated server results
 back into the paper evidence pipeline.
 \end{abstract}

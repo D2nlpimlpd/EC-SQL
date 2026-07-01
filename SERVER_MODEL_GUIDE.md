@@ -1,4 +1,4 @@
-# BoyueSQL Server Model Guide
+# EC-SQL Server Model Guide
 
 This guide records the default A100 80GB server model matrix and the
 HuggingFace snapshots downloaded by the one-click setup path.
@@ -9,7 +9,7 @@ The automated Spider2 server benchmark currently runs through the local
 Ollama-compatible inference path.  The default models are:
 
 ```bash
-export BOYUESQL_MODELS=qwen3-vl:8b
+export EC_SQL_MODELS=qwen3-vl:8b
 export BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b
 ```
 

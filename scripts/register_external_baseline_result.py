@@ -106,7 +106,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Register an externally executed official baseline result as a "
-            "BoyueSQL-compatible experiment artifact. The script does not run "
+            "EC-SQL-compatible experiment artifact. The script does not run "
             "the baseline; it records already verified metrics with explicit "
             "scope metadata for aggregation and paper evidence."
         )

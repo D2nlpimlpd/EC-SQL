@@ -63,9 +63,9 @@ def row_ser(row: dict[str, str] | None) -> str:
 
 
 def render_abstract(run_id: str, rows: list[dict[str, str]]) -> str:
-    sqlite = best_row(rows, categories={"sqlite_boyuesql_full"})
+    sqlite = best_row(rows, categories={"sqlite_ecsql_full"})
     baseline = best_row(rows, categories={"sqlite_sota_baseline"})
-    dbt = best_row(rows, categories={"dbt_boyuesql_full"})
+    dbt = best_row(rows, categories={"dbt_ecsql_full"})
     sqlite_ablation_count = sum(1 for row in rows if row.get("category") == "sqlite_ablation")
     dbt_ablation_count = sum(1 for row in rows if row.get("category") == "dbt_ablation")
     baseline_count = sum(1 for row in rows if row.get("category") == "sqlite_sota_baseline")
@@ -83,10 +83,10 @@ def render_abstract(run_id: str, rows: list[dict[str, str]]) -> str:
     return f"""\\begin{{abstract}}
 Enterprise text-to-SQL systems must generalize across heterogeneous schemas,
 execution engines, and analytical project structures while remaining usable
-under local-resource and privacy constraints. We present \\emph{{BoyueSQL}}, a
+under local-resource and privacy constraints. We present \\emph{{EC-SQL}}, a
 generalized evidence-grounded text-to-SQL framework that removes
 deployment-specific schema assumptions and treats SQL generation as
-evidence-constrained program synthesis. BoyueSQL constructs schema evidence
+evidence-constrained program synthesis. EC-SQL constructs schema evidence
 from database dictionaries and project metadata, retrieves bounded
 table--column--relation context through a customized RagAnything/LightRAG
 schema knowledge graph, validates generated identifiers against active
@@ -96,16 +96,16 @@ framework further performs deterministic model synthesis, dependency
 validation, dialect-aware type and syntax repair, custom-schema-aware fallback
 generation, and result-set fingerprinting for large outputs.
 
-We evaluate BoyueSQL on Spider2 using the validated server run
+We evaluate EC-SQL on Spider2 using the validated server run
 \\texttt{{{run_label}}}. The completed matrix includes {sqlite_cases} locally
 executable Spider2-Lite SQLite gold cases, {dbt_cases} Spider2-DBT tasks,
 {sqlite_ablation_count} SQLite ablations, {dbt_ablation_count} DBT ablations,
 and {baseline_count} SOTA-style baseline rows across {len(baseline_models)}
-baseline models. On the SQLite gold subset, BoyueSQL with {sqlite_model}
+baseline models. On the SQLite gold subset, EC-SQL with {sqlite_model}
 achieves {pct(sqlite.get('ER') if sqlite else 0)} execution rate,
 {pct(sqlite.get('RE') if sqlite else 0)} exact result-match rate, and
 {row_ser(sqlite)} semantic pass rate. On the DBT subset, the deterministic
-BoyueSQL pipeline achieves {pct(dbt.get('ER') if dbt else 0)} execution rate
+EC-SQL pipeline achieves {pct(dbt.get('ER') if dbt else 0)} execution rate
 and {row_ser(dbt)} semantic pass rate over the reported gold-evaluable cases.
 The strongest SQLite baseline in this run, {best_baseline_label} with
 {best_baseline_model}, reaches {row_ser(baseline)} semantic pass rate. These

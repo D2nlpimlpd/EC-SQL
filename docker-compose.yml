@@ -1,14 +1,14 @@
 version: "3.8"
 
 services:
-  boyuesql-app:
+  ecsql-app:
     build: .
-    container_name: boyuesql-app
+    container_name: ecsql-app
     ports:
       - "${PORT:-5000}:5000"
     environment:
-      BOYUESQL_DIALECT: ${BOYUESQL_DIALECT:-sqlite}
-      DB_PATH: ${DB_PATH:-/data/boyuesql/example.sqlite}
+      EC_SQL_DIALECT: ${EC_SQL_DIALECT:-sqlite}
+      DB_PATH: ${DB_PATH:-/data/ecsql/example.sqlite}
       DB_USER: ${DB_USER:-}
       DB_PASSWORD: ${DB_PASSWORD:-}
       DB_HOST: ${DB_HOST:-}
@@ -23,5 +23,5 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${BOYUESQL_DATA_DIR:-./data}:/data/boyuesql
+      - ${EC_SQL_DATA_DIR:-./data}:/data/ecsql
     restart: unless-stopped

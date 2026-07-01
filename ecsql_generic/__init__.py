@@ -1,4 +1,4 @@
-"""Generic BoyueSQL building blocks.
+"""Generic EC-SQL building blocks.
 
 This package is intentionally independent from the original Oracle-specific
 demo entrypoint.  It provides portable schema, dialect, dataset, and evaluation

@@ -1,6 +1,6 @@
-# BoyueSQL Server Runbook
+# EC-SQL Server Runbook
 
-This file records the reproducible path for moving the generic BoyueSQL stack
+This file records the reproducible path for moving the generic EC-SQL stack
 from local Windows smoke tests to a Linux server.
 
 ## 1. One-command Environment and Dataset Setup
@@ -13,7 +13,7 @@ bash scripts/setup_linux.sh
 
 By default, `setup_linux.sh` installs the pinned server-runtime
 dependencies needed for Spider2, dbt/DuckDB evaluation, model downloads,
-and the BoyueSQL service. It intentionally does not install the older
+and the EC-SQL service. It intentionally does not install the older
 full local/web dependency stack. Set `INSTALL_LEGACY_REQUIREMENTS=1`
 only when you need that historical environment, and set
 `INSTALL_RAGANYTHING_LOCAL=1` only when you need to import the local
@@ -107,22 +107,22 @@ bash scripts/start_linux.sh
 ```
 
 The startup script loads `.env`, activates `.venv` when present, and launches
-the clean generic service `boyuesql_service.py` by default. Override these
+the clean generic service `ecsql_service.py` by default. Override these
 values when needed:
 
 ```bash
-HOST=0.0.0.0 PORT=8000 APP_ENTRY=boyuesql_service.py bash scripts/start_linux.sh
+HOST=0.0.0.0 PORT=8000 APP_ENTRY=ecsql_service.py bash scripts/start_linux.sh
 ```
 
 Generic local file-backed service configuration:
 
 ```bash
-BOYUESQL_DIALECT=sqlite
+EC_SQL_DIALECT=sqlite
 DB_PATH=/data/text2sql_datasets/example.sqlite
 ```
 
-For DuckDB, use `BOYUESQL_DIALECT=duckdb` with `DB_PATH` or `DB_DATABASE`.
-For Oracle, use `BOYUESQL_DIALECT=oracle` with `DB_USER`, `DB_PASSWORD`,
+For DuckDB, use `EC_SQL_DIALECT=duckdb` with `DB_PATH` or `DB_DATABASE`.
+For Oracle, use `EC_SQL_DIALECT=oracle` with `DB_USER`, `DB_PASSWORD`,
 `DB_HOST`, `DB_PORT`, and `DB_SERVICE_NAME`, and run setup with
 `INSTALL_ORACLE=1` if the optional Oracle Python driver is needed. The Oracle
 driver is imported only when the Oracle adapter is selected, so SQLite/DuckDB
@@ -142,15 +142,15 @@ python scripts/smoke_test_server_upload_packet.py \
   --packet artifacts/server_release/server_full_spider2_server_upload_packet.zip \
   --run-doctor --run-diagnostics
 python scripts/smoke_test_server_acceptance_flow.py
-python scripts/build_server_handoff_commands.py --host user@server --remote-dir ~/boyuesql_spider2_run
+python scripts/build_server_handoff_commands.py --host user@server --remote-dir ~/ecsql_spider2_run
 python scripts/run_server_handoff.py --host user@server --stage submit
 ```
 
 This writes:
 
 ```text
-artifacts/server_release/boyuesql_spider2_server.zip
-artifacts/server_release/boyuesql_spider2_server.sha256
+artifacts/server_release/ecsql_spider2_server.zip
+artifacts/server_release/ecsql_spider2_server.sha256
 artifacts/server_release/server_full_spider2_server_submission_manifest.json
 artifacts/server_release/server_full_spider2_server_submission_manifest.md
 artifacts/server_release/server_full_spider2_server_upload_packet.zip
@@ -158,7 +158,7 @@ artifacts/server_release/server_full_spider2_server_upload_packet.sha256
 artifacts/server_release/server_full_spider2_server_upload_packet_manifest.json
 ```
 
-The package includes only the generic service, reusable `boyuesql_generic`
+The package includes only the generic service, reusable `ecsql_generic`
 library, benchmark scripts, tests, requirements, server documentation, and the
 modified RagAnything source needed for reproducibility. It deliberately excludes
 the earlier private-database demo entrypoint, local paper assets, PDFs,
@@ -301,9 +301,9 @@ should be run only after those accounts are configured on the server.
 
 ## 5. Required Experimental Matrix
 
-Run BoyueSQL variants:
+Run EC-SQL variants:
 
-- full BoyueSQL
+- full EC-SQL
 - without final repair
 - without schema-KG retrieval
 - without live-catalog validation
@@ -329,7 +329,7 @@ Report at least:
 The local `*_style` systems are not official reproductions of the referenced
 repositories. They are resource-compatible proxy baselines run through the same
 Spider2 runner, model endpoint, schema budget, and ER/RE/SER evaluator as
-BoyueSQL. Official external repositories are kept under `baselines/` for
+EC-SQL. Official external repositories are kept under `baselines/` for
 reference, while `baselines/baseline_manifest.json` records the exact
 implementation scope and is propagated into summary/evidence artifacts.
 
@@ -401,8 +401,8 @@ bash scripts/run_full_server_benchmark.sh
 
 This profile wraps `run_server_experiments.sh` with defaults for the SQLite
 smoke/schema-only/LLM matrix, SQLite SOTA-style baselines, DBT starter baseline,
-deterministic DBT BoyueSQL, and deterministic DBT ablations. Override
-`BOYUESQL_MODELS`, `BASELINE_MODELS`, `RUN_DBT_LLM`, and limit variables for
+deterministic DBT EC-SQL, and deterministic DBT ablations. Override
+`EC_SQL_MODELS`, `BASELINE_MODELS`, `RUN_DBT_LLM`, and limit variables for
 larger server comparisons.
 
 When LLM systems are enabled, `run_server_experiments.sh` checks the configured
@@ -418,7 +418,7 @@ Manual model preflight:
 ```bash
 python scripts/check_ollama_models.py \
   --base-url "${OLLAMA_BASE_URL:-http://localhost:11434}" \
-  --model "${BOYUESQL_MODELS:-qwen3-vl:8b}" \
+  --model "${EC_SQL_MODELS:-qwen3-vl:8b}" \
   --model "${BASELINE_MODELS:-qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b}"
 ```
 
@@ -525,8 +525,8 @@ execution is the full Linux/server SOTA matrix. For a server run to count as
 complete, the audit requires the aggregate summary, case CSV, Markdown summary,
 and failure-diagnostic report. The manifest must also prove broad Spider2
 coverage with at least 600 unique instances/projects. The summary must include
-BoyueSQL full results, SQLite ablations, SOTA-style SQLite baselines across at
-least two models, the DBT starter-project baseline, DBT BoyueSQL deterministic
+EC-SQL full results, SQLite ablations, SOTA-style SQLite baselines across at
+least two models, the DBT starter-project baseline, DBT EC-SQL deterministic
 full, and multiple DBT ablations. Each summary row must point to a non-empty
 JSON artifact.
 
@@ -579,7 +579,7 @@ python scripts/finalize_server_result.py \
 The finalizer verifies the bundle, imports it under
 `artifacts/server_runs/<RUN_ID>/`, runs the strict readiness audit with the
 imported run directory, copies the server-result abstract to
-`artifacts/boyuesql_spider2_server_result_abstract.tex`, writes a root-level
+`artifacts/ecsql_spider2_server_result_abstract.tex`, writes a root-level
 convenience copy, and records
 `summary/server_<RUN_ID>_final_acceptance_report.json`.
 The lower-level manual commands remain available for step-by-step debugging:
@@ -644,14 +644,14 @@ RUN_SMOKE=1 SQLITE_SMOKE_LIMIT=3 DBT_SMOKE_LIMIT=2 \
 RUN_SQLITE_SCHEMA_ONLY=1 SQLITE_SCHEMA_ONLY_LIMIT=3 \
 RUN_SQLITE_LLM=0 \
 RUN_DBT_BASELINE=0 \
-RUN_DBT_BOYUESQL=1 DBT_BOYUESQL_LIMIT=2 \
+RUN_DBT_EC_SQL=1 DBT_EC_SQL_LIMIT=2 \
 RUN_DBT_ABLATIONS=1 DBT_ABLATION_LIMIT=2 \
 RUN_DBT_LLM=0 \
 bash scripts/run_server_experiments.sh
 ```
 
 This verifies smoke gates, schema-only SQLite execution, DBT deterministic
-BoyueSQL, DBT ablations, aggregation, and failure diagnostics without invoking
+EC-SQL, DBT ablations, aggregation, and failure diagnostics without invoking
 an LLM.
 
 For a tiny integrated LLM comparison using local Ollama models:
@@ -661,14 +661,14 @@ RUN_ID=sqlite_llm_server_tiny \
 RUN_SMOKE=0 \
 RUN_SQLITE_SCHEMA_ONLY=0 \
 RUN_SQLITE_LLM=1 \
-SQLITE_SYSTEMS=boyuesql \
+SQLITE_SYSTEMS=ecsql \
 SQLITE_BASELINE_SYSTEMS=direct,din_sql_style \
 SQLITE_LLM_LIMIT=135 \
 SQLITE_GOLD_CASE_LIMIT=2 \
-BOYUESQL_MODELS=qwen2.5-coder:7b \
+EC_SQL_MODELS=qwen2.5-coder:7b \
 BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b \
 RUN_DBT_BASELINE=0 \
-RUN_DBT_BOYUESQL=0 \
+RUN_DBT_EC_SQL=0 \
 RUN_DBT_ABLATIONS=0 \
 RUN_DBT_LLM=0 \
 NUM_PREDICT=512 \
@@ -676,10 +676,10 @@ LLM_TIMEOUT=180 \
 bash scripts/run_server_experiments.sh
 ```
 
-On the local Windows/Git-Bash run, this produced 2/2 SER for BoyueSQL with
+On the local Windows/Git-Bash run, this produced 2/2 SER for EC-SQL with
 `qwen2.5-coder:7b`, while direct/DIN-style baselines with
 `qwen2.5-coder:7b` and `sqlcoder:7b` reached 0/2 SER. Treat this only as a
-pipeline sanity check; scale `SQLITE_GOLD_CASE_LIMIT`, `BOYUESQL_MODELS`, and
+pipeline sanity check; scale `SQLITE_GOLD_CASE_LIMIT`, `EC_SQL_MODELS`, and
 `BASELINE_MODELS` on the Linux server for the real comparison.
 
 For the current five-case gold-evaluable local sanity comparison:
@@ -689,14 +689,14 @@ RUN_ID=sqlite_llm_server_gold5_v2 \
 RUN_SMOKE=0 \
 RUN_SQLITE_SCHEMA_ONLY=0 \
 RUN_SQLITE_LLM=1 \
-SQLITE_SYSTEMS=boyuesql \
+SQLITE_SYSTEMS=ecsql \
 SQLITE_BASELINE_SYSTEMS=direct,din_sql_style \
 SQLITE_LLM_LIMIT=135 \
 SQLITE_GOLD_CASE_LIMIT=5 \
-BOYUESQL_MODELS=qwen2.5-coder:7b \
+EC_SQL_MODELS=qwen2.5-coder:7b \
 BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b \
 RUN_DBT_BASELINE=0 \
-RUN_DBT_BOYUESQL=0 \
+RUN_DBT_EC_SQL=0 \
 RUN_DBT_ABLATIONS=0 \
 RUN_DBT_LLM=0 \
 NUM_PREDICT=512 \
@@ -706,7 +706,7 @@ bash scripts/run_server_experiments.sh
 
 The saved local result is:
 
-- BoyueSQL + `qwen2.5-coder:7b`: 5/5 SER.
+- EC-SQL + `qwen2.5-coder:7b`: 5/5 SER.
 - Direct and DIN-style baselines with `qwen2.5-coder:7b`: 0/5 SER.
 - Direct and DIN-style baselines with `sqlcoder:7b`: 0/5 SER.
 
@@ -717,7 +717,7 @@ semantic-template fixes:
 python scripts/run_spider2_sqlite_experiment.py \
   --manifest artifacts/spider2_manifest.csv \
   --spider-root "$SPIDER_ROOT" \
-  --systems boyuesql \
+  --systems ecsql \
   --model qwen2.5-coder:7b \
   --ollama-base-url "${OLLAMA_BASE_URL:-http://localhost:11434}" \
   --ollama-api "${OLLAMA_API:-generate}" \
@@ -727,21 +727,21 @@ python scripts/run_spider2_sqlite_experiment.py \
   --num-predict 512 \
   --timeout 180 \
   --max-repairs 5 \
-  --out artifacts/server_runs/sqlite_llm_server_gold10_v2/spider2_sqlite_boyuesql_ablation_qwen2.5-coder_7b.json
+  --out artifacts/server_runs/sqlite_llm_server_gold10_v2/spider2_sqlite_ecsql_ablation_qwen2.5-coder_7b.json
 
 python scripts/aggregate_experiment_results.py \
   --inputs \
-    artifacts/server_runs/sqlite_llm_server_gold10_v2/spider2_sqlite_boyuesql_ablation_qwen2.5-coder_7b.json \
+    artifacts/server_runs/sqlite_llm_server_gold10_v2/spider2_sqlite_ecsql_ablation_qwen2.5-coder_7b.json \
     artifacts/server_runs/sqlite_llm_server_gold10_v1/spider2_sqlite_sota_baselines_qwen2.5-coder_7b.json \
     artifacts/server_runs/sqlite_llm_server_gold10_v1/spider2_sqlite_sota_baselines_sqlcoder_7b.json \
   --out-dir artifacts/server_runs/sqlite_llm_server_gold10_v2_compare/summary \
   --summary-name server_sqlite_llm_server_gold10_v2_compare
 ```
 
-The saved local comparison table combines the latest BoyueSQL result with the
+The saved local comparison table combines the latest EC-SQL result with the
 same ten-case baseline artifacts:
 
-- BoyueSQL + `qwen2.5-coder:7b`: ER=100.0, RE=100.0, SER=100.0, avg 1.9342s.
+- EC-SQL + `qwen2.5-coder:7b`: ER=100.0, RE=100.0, SER=100.0, avg 1.9342s.
 - Direct prompt + `qwen2.5-coder:7b`: ER=30.0, RE=0.0, SER=0.0.
 - DIN-SQL-style + `qwen2.5-coder:7b`: ER=60.0, RE=0.0, SER=0.0.
 - Direct prompt + `sqlcoder:7b`: ER=0.0, RE=0.0, SER=0.0.
@@ -759,7 +759,7 @@ For the current twenty-case gold-evaluable local comparison:
 python scripts/run_spider2_sqlite_experiment.py \
   --manifest artifacts/spider2_manifest.csv \
   --spider-root "$SPIDER_ROOT" \
-  --systems boyuesql,no_semantic_templates \
+  --systems ecsql,no_semantic_templates \
   --model qwen2.5-coder:7b \
   --ollama-base-url "${OLLAMA_BASE_URL:-http://localhost:11434}" \
   --ollama-api "${OLLAMA_API:-generate}" \
@@ -769,14 +769,14 @@ python scripts/run_spider2_sqlite_experiment.py \
   --num-predict 512 \
   --timeout 180 \
   --max-repairs 5 \
-  --out artifacts/server_runs/sqlite_llm_server_gold20_v2/spider2_sqlite_boyuesql_and_ablation_qwen2.5-coder_7b.json
+  --out artifacts/server_runs/sqlite_llm_server_gold20_v2/spider2_sqlite_ecsql_and_ablation_qwen2.5-coder_7b.json
 ```
 
 The saved local result table under
 `artifacts/server_runs/sqlite_llm_server_gold20_v2/summary/` is:
 
-- BoyueSQL + `qwen2.5-coder:7b`: ER=100.0, RE=100.0, SER=100.0, avg 2.0281s.
-- BoyueSQL without deterministic semantic templates: ER=60.0, RE=5.0, SER=5.0.
+- EC-SQL + `qwen2.5-coder:7b`: ER=100.0, RE=100.0, SER=100.0, avg 2.0281s.
+- EC-SQL without deterministic semantic templates: ER=60.0, RE=5.0, SER=5.0.
 - Direct prompt + `qwen2.5-coder:7b`: ER=35.0, RE=0.0, SER=0.0.
 - DIN-SQL-style + `qwen2.5-coder:7b`: ER=55.0, RE=0.0, SER=0.0.
 - Direct prompt + `sqlcoder:7b`: ER=30.0, RE=0.0, SER=0.0.
@@ -788,7 +788,7 @@ The current full local executable-gold SQLite run is:
 python scripts/run_spider2_sqlite_experiment.py \
   --manifest artifacts/spider2_manifest.csv \
   --spider-root "$SPIDER_ROOT" \
-  --systems boyuesql \
+  --systems ecsql \
   --model qwen2.5-coder:7b \
   --ollama-base-url "${OLLAMA_BASE_URL:-http://localhost:11434}" \
   --ollama-api "${OLLAMA_API:-generate}" \
@@ -799,7 +799,7 @@ python scripts/run_spider2_sqlite_experiment.py \
   --num-predict 512 \
   --timeout 180 \
   --max-repairs 5 \
-  --out artifacts/server_runs/sqlite_llm_server_gold24_v1/spider2_sqlite_boyuesql_ablation_qwen2.5-coder_7b.json
+  --out artifacts/server_runs/sqlite_llm_server_gold24_v1/spider2_sqlite_ecsql_ablation_qwen2.5-coder_7b.json
 ```
 
 This selects all 24 locally executable gold SQLite cases available in the
@@ -812,22 +812,22 @@ By default it runs:
 - SQLite smoke gate.
 - DBT/DuckDB smoke gate.
 - SQLite schema-only executable baseline.
-- SQLite BoyueSQL plus ablations on executable-gold local SQLite cases.
+- SQLite EC-SQL plus ablations on executable-gold local SQLite cases.
 - SQLite SOTA-style prompt baselines with a separate baseline model:
   `direct`, `din_sql_style`, `dail_sql_style`, `self_debug_style`,
   `mac_sql_style`, and `chess_style`. These rows are local prompt-style
   proxies unless their generated `official_reproduction` field is `true`.
 - DBT starter-project execution baseline.
-- DBT BoyueSQL deterministic edit configuration, which is the current strongest
+- DBT EC-SQL deterministic edit configuration, which is the current strongest
   no-LLM repair/synthesis path used for the local Spider2-DBT first-50 result.
 - DBT deterministic ablations:
-  `boyuesql_ablation_no_declared_model_synthesis`,
-  `boyuesql_ablation_no_duckdb_type_repair`,
-  `boyuesql_ablation_no_missing_ref_source_fallback`,
-  `boyuesql_ablation_no_declared_column_completion`,
-  `boyuesql_ablation_no_related_dimension_enrichment`,
-  `boyuesql_ablation_no_fact_pivot_synthesis`, and
-  `boyuesql_ablation_no_final_failed_model_placeholder`.
+  `ecsql_ablation_no_declared_model_synthesis`,
+  `ecsql_ablation_no_duckdb_type_repair`,
+  `ecsql_ablation_no_missing_ref_source_fallback`,
+  `ecsql_ablation_no_declared_column_completion`,
+  `ecsql_ablation_no_related_dimension_enrichment`,
+  `ecsql_ablation_no_fact_pivot_synthesis`, and
+  `ecsql_ablation_no_final_failed_model_placeholder`.
 - Final result aggregation into CSV and Markdown.
 - Failure diagnostics by suite/system/model/stage/error class.
 
@@ -854,42 +854,42 @@ The current local evidence snapshot can also be regenerated from saved
 artifacts without rerunning models:
 
 ```bash
-python scripts/build_boyuesql_evidence_report.py
+python scripts/build_ecsql_evidence_report.py
 ```
 
 This writes:
 
 ```text
-artifacts/boyuesql_evidence_report.md
-artifacts/boyuesql_evidence_table.csv
+artifacts/ecsql_evidence_report.md
+artifacts/ecsql_evidence_table.csv
 ```
 
 Use environment variables to scale the run:
 
 ```bash
 PYTHON=/path/to/.venv/bin/python \
-BOYUESQL_MODELS=qwen3-vl:8b \
+EC_SQL_MODELS=qwen3-vl:8b \
 BASELINE_MODELS=qwen2.5-coder:7b \
 OLLAMA_BASE_URL=http://localhost:11434 \
 OLLAMA_API=chat \
 SQLITE_LLM_LIMIT=135 \
-SQLITE_SYSTEMS=boyuesql,no_external_knowledge,no_schema_retrieval,no_repair \
+SQLITE_SYSTEMS=ecsql,no_external_knowledge,no_schema_retrieval,no_repair \
 SQLITE_BASELINE_SYSTEMS=direct,din_sql_style,dail_sql_style,self_debug_style,mac_sql_style,chess_style \
 DBT_BASELINE_LIMIT=68 \
-DBT_BOYUESQL_LIMIT=68 \
+DBT_EC_SQL_LIMIT=68 \
 DBT_ABLATION_LIMIT=68 \
 bash scripts/run_server_experiments.sh
 ```
 
 For a server-side multi-model comparison, pass comma-separated model lists. The
-script will run every BoyueSQL model over the BoyueSQL/ablation systems and
+script will run every EC-SQL model over the EC-SQL/ablation systems and
 every baseline model over the SOTA-style prompt baselines, then aggregate all
 JSON artifacts together:
 
 ```bash
-BOYUESQL_MODELS=qwen3-vl:8b,deepseek-coder:6.7b,mistral:7b \
+EC_SQL_MODELS=qwen3-vl:8b,deepseek-coder:6.7b,mistral:7b \
 BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b,codegemma:7b,codellama:7b \
-SQLITE_SYSTEMS=boyuesql,no_external_knowledge,no_schema_retrieval,no_repair \
+SQLITE_SYSTEMS=ecsql,no_external_knowledge,no_schema_retrieval,no_repair \
 SQLITE_BASELINE_SYSTEMS=direct,din_sql_style,dail_sql_style,self_debug_style,mac_sql_style,chess_style \
 SQLITE_LLM_LIMIT=135 \
 SQLITE_GOLD_CASE_LIMIT=0 \
@@ -899,21 +899,21 @@ LLM_TIMEOUT=600 \
 bash scripts/run_server_experiments.sh
 ```
 
-The older single-value variables `BOYUESQL_MODEL`, `BASELINE_MODEL`, and
+The older single-value variables `EC_SQL_MODEL`, `BASELINE_MODEL`, and
 `DBT_EDIT_MODEL` remain supported; they are used as defaults when the
 corresponding plural list variables are omitted.
 
 The deterministic DBT path is on by default. To run only the current DBT
-BoyueSQL configuration and its ablations without SQLite or LLM calls:
+EC-SQL configuration and its ablations without SQLite or LLM calls:
 
 ```bash
 RUN_SMOKE=0 \
 RUN_SQLITE_SCHEMA_ONLY=0 \
 RUN_SQLITE_LLM=0 \
 RUN_DBT_BASELINE=0 \
-RUN_DBT_BOYUESQL=1 \
+RUN_DBT_EC_SQL=1 \
 RUN_DBT_ABLATIONS=1 \
-DBT_BOYUESQL_LIMIT=68 \
+DBT_EC_SQL_LIMIT=68 \
 DBT_ABLATION_LIMIT=68 \
 DBT_TIMEOUT=300 \
 bash scripts/run_server_experiments.sh
@@ -926,12 +926,12 @@ Python interpreter, pass an explicit Windows-readable Spider2 path:
 SPIDER_ROOT=D:/text2sql_datasets/Spider2 \
 PYTHON=D:/anaconda3/envs/text2sql/python.exe \
 RUN_SMOKE=0 RUN_SQLITE_SCHEMA_ONLY=0 RUN_SQLITE_LLM=0 \
-RUN_DBT_BASELINE=0 RUN_DBT_BOYUESQL=0 RUN_DBT_ABLATIONS=1 \
+RUN_DBT_BASELINE=0 RUN_DBT_EC_SQL=0 RUN_DBT_ABLATIONS=1 \
 DBT_ABLATION_LIMIT=1 \
 bash scripts/run_server_experiments.sh
 ```
 
-Current local reference for the deterministic DBT BoyueSQL path:
+Current local reference for the deterministic DBT EC-SQL path:
 
 - Result file: `artifacts/spider2_dbt_llm_edit_dbt68_v10b_full.json`
 - Snapshot: `artifacts/spider2_dbt68_v10_snapshot.md`
@@ -1041,7 +1041,7 @@ artifacts/experiment_summary/local_checked.md
 ## 7. Spider2 SQLite Experiment Runner
 
 The local executable SQLite subset can be used for fast iteration before
-running cloud-backed Spider2-Lite/Snow. The runner supports BoyueSQL variants,
+running cloud-backed Spider2-Lite/Snow. The runner supports EC-SQL variants,
 external-knowledge ablation, semantic guards, execution-error repair, and
 schema-only fallback.
 
@@ -1063,7 +1063,7 @@ Small local LLM smoke:
 python scripts/run_spider2_sqlite_experiment.py \
   --manifest artifacts/spider2_manifest.csv \
   --spider-root /data/text2sql_datasets/Spider2 \
-  --systems boyuesql,no_external_knowledge,direct \
+  --systems ecsql,no_external_knowledge,direct \
   --model qwen2.5-coder:7b \
   --limit 40 \
   --require-gold \
@@ -1079,7 +1079,7 @@ Server run with a stronger model:
 python scripts/run_spider2_sqlite_experiment.py \
   --manifest artifacts/spider2_manifest.csv \
   --spider-root /data/text2sql_datasets/Spider2 \
-  --systems boyuesql,no_external_knowledge,no_schema_retrieval,direct,schema_only \
+  --systems ecsql,no_external_knowledge,no_schema_retrieval,direct,schema_only \
   --model qwen3-vl:8b \
   --ollama-api chat \
   --limit 135 \
@@ -1155,12 +1155,12 @@ Notes:
   column aliases.
 - Several first-10 failures are inherited DBT-project issues in the upstream
   examples, such as missing refs, YAML quoting errors, and DuckDB type
-  mismatches. These are useful targets for the next BoyueSQL DBT-editing
+  mismatches. These are useful targets for the next EC-SQL DBT-editing
   agent rather than failures of the generic schema loader.
 
 ## 9. Spider2-DBT LLM Editing Runner
 
-The project-editing runner is the non-cheating BoyueSQL entry point for DBT
+The project-editing runner is the non-cheating EC-SQL entry point for DBT
 tasks. It gives the model only the task instruction, starter DBT files, source
 DuckDB schema, and DBT error history. Gold condition tables are used only after
 execution for evaluation.
@@ -1399,7 +1399,7 @@ execution and semantic correctness:
 schema_only, 2 executable-gold cases:
   ER=100.0, RE=0.0, SER=0.0
 
-qwen2.5-coder:7b, BoyueSQL, 2 executable-gold cases after semantic guard:
+qwen2.5-coder:7b, EC-SQL, 2 executable-gold cases after semantic guard:
   ER=50.0, RE=50.0, SER=50.0
 ```
 
@@ -1409,7 +1409,7 @@ output grain. It is now covered by the schema-grounded deterministic RFM
 decomposer:
 
 ```text
-local003 RFM case, BoyueSQL qwen2.5-coder:7b:
+local003 RFM case, EC-SQL qwen2.5-coder:7b:
   ER=100.0
   RE=100.0
   SER=100.0

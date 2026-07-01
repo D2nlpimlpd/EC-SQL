@@ -18,21 +18,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from boyuesql_generic import SQLiteDialect
-from boyuesql_generic.dictionary import SchemaDictionary, from_sqlite_database
-from boyuesql_generic.eval_protocol import (
+from ecsql_generic import SQLiteDialect
+from ecsql_generic.dictionary import SchemaDictionary, from_sqlite_database
+from ecsql_generic.eval_protocol import (
     SemanticEvidence,
     contains_null_placeholder,
     normalize_cell,
     result_signature,
 )
-from boyuesql_generic.retrieval import retrieve_tables, schema_prompt
+from ecsql_generic.retrieval import retrieve_tables, schema_prompt
 
 
 SQL_BLOCK_RE = re.compile(r"```(?:sql)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 SQL_START_RE = re.compile(r"\b(WITH|SELECT)\b", re.IGNORECASE)
-BOYUESQL_SYSTEMS = {"boyuesql", "no_external_knowledge", "no_schema_retrieval"}
-EXECUTION_REPAIR_SYSTEMS = BOYUESQL_SYSTEMS | {"self_debug_style", "mac_sql_style", "chess_style"}
+EC_SQL_SYSTEMS = {"ecsql", "no_external_knowledge", "no_schema_retrieval"}
+EXECUTION_REPAIR_SYSTEMS = EC_SQL_SYSTEMS | {"self_debug_style", "mac_sql_style", "chess_style"}
 
 
 @dataclass(frozen=True)
@@ -1949,7 +1949,7 @@ def generate_sql_for_system(
 ) -> tuple[str, str, int]:
     if system == "schema_only":
         return schema_only_sql(schema, question, dialect), "", 0
-    if system in BOYUESQL_SYSTEMS:
+    if system in EC_SQL_SYSTEMS:
         deterministic_sql, deterministic_reason = synthesize_semantic_template_sql(question, schema)
         if deterministic_sql and not dialect.validate_select_only(deterministic_sql):
             return deterministic_sql, deterministic_reason, 0
@@ -1980,7 +1980,7 @@ def generate_sql_for_system(
             last_sql = sql
             last_error = validation_error
             continue
-        if system in BOYUESQL_SYSTEMS:
+        if system in EC_SQL_SYSTEMS:
             guard_errors = semantic_guard_errors(question, schema, sql)
             if guard_errors:
                 deterministic = deterministic_semantic_guard_repair(
@@ -2171,7 +2171,7 @@ def evaluate_case(
             exact = row_signature(pred.rows) == row_signature(gold.rows)
     final_guard_errors = (
         semantic_guard_errors(row["question"], schema, sql)
-        if system in BOYUESQL_SYSTEMS
+        if system in EC_SQL_SYSTEMS
         else []
     )
     evidence = SemanticEvidence(
@@ -2272,12 +2272,12 @@ def select_sqlite_rows(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run BoyueSQL-style experiments on Spider2-Lite SQLite cases")
+    parser = argparse.ArgumentParser(description="Run EC-SQL-style experiments on Spider2-Lite SQLite cases")
     parser.add_argument("--manifest", default="artifacts/spider2_manifest.csv")
     parser.add_argument("--spider-root", default=r"D:\text2sql_datasets\Spider2")
     parser.add_argument(
         "--systems",
-        default="schema_only,boyuesql,no_semantic_templates,no_repair,no_schema_retrieval,direct",
+        default="schema_only,ecsql,no_semantic_templates,no_repair,no_schema_retrieval,direct",
     )
     parser.add_argument("--model", default=os.environ.get("OLLAMA_SQL_MODEL", "qwen3-vl:8b"))
     parser.add_argument("--ollama-base-url", default=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))

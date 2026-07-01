@@ -17,7 +17,7 @@ from scripts.check_ollama_models import fetch_models, split_models
 
 
 REQUIRED_PROJECT_FILES = [
-    "boyuesql_service.py",
+    "ecsql_service.py",
     "requirements.txt",
     "requirements-oracle.txt",
     "requirements-raganything.txt",
@@ -141,7 +141,7 @@ def check_shell_syntax(project_root: Path) -> tuple[list[str], list[str]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Preflight checks for BoyueSQL Linux/server deployment.")
+    parser = argparse.ArgumentParser(description="Preflight checks for EC-SQL Linux/server deployment.")
     parser.add_argument("--project-root", default=str(PROJECT_ROOT))
     parser.add_argument("--spider-root", default=os.environ.get("SPIDER_ROOT") or os.environ.get("SPIDER2_ROOT") or "/data/text2sql_datasets/Spider2")
     parser.add_argument("--manifest", default=os.environ.get("MANIFEST") or str(PROJECT_ROOT / "artifacts" / "spider2_manifest.csv"))

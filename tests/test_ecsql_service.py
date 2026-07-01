@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from boyuesql_service import app
+from ecsql_service import app
 
 
-class BoyueSQLServiceTests(unittest.TestCase):
+class EcSqlServiceTests(unittest.TestCase):
     def test_service_health_schema_and_deterministic_query(self) -> None:
         old_env = dict(os.environ)
         with tempfile.TemporaryDirectory() as tmp:
@@ -34,9 +34,9 @@ class BoyueSQLServiceTests(unittest.TestCase):
 
             os.environ.update(
                 {
-                    "BOYUESQL_DIALECT": "sqlite",
+                    "EC_SQL_DIALECT": "sqlite",
                     "DB_PATH": str(db_path),
-                    "BOYUESQL_ENABLE_SQLITE_TEMPLATES": "1",
+                    "EC_SQL_ENABLE_SQLITE_TEMPLATES": "1",
                     "MAX_ROWS": "20",
                 }
             )

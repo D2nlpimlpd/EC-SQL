@@ -1,4 +1,4 @@
-# BoyueSQL Main Entrypoint
+# EC-SQL Main Entrypoint
 
 The project-level README is `readme.md`.
 

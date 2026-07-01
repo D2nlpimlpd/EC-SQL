@@ -99,10 +99,10 @@ def write_manifest(path: Path, dataset_root: Path) -> None:
 
 def summary_rows() -> list[dict[str, object]]:
     rows: list[tuple[str, str, str, str, int]] = [
-        ("spider2_sqlite_boyuesql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "boyuesql", "qwen3-vl:8b", 24),
-        ("spider2_sqlite_boyuesql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24),
-        ("spider2_sqlite_boyuesql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24),
-        ("spider2_sqlite_boyuesql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24),
+        ("spider2_sqlite_ecsql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "ecsql", "qwen3-vl:8b", 24),
+        ("spider2_sqlite_ecsql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24),
+        ("spider2_sqlite_ecsql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24),
+        ("spider2_sqlite_ecsql_ablation_qwen3-vl_8b.json", "spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24),
         ("spider2_sqlite_sota_baselines_qwen2.5-coder_7b.json", "spider2-sqlite", "direct", "qwen2.5-coder:7b", 24),
         ("spider2_sqlite_sota_baselines_qwen2.5-coder_7b.json", "spider2-sqlite", "din_sql_style", "qwen2.5-coder:7b", 24),
         ("spider2_sqlite_sota_baselines_qwen2.5-coder_7b.json", "spider2-sqlite", "dail_sql_style", "qwen2.5-coder:7b", 24),
@@ -111,39 +111,39 @@ def summary_rows() -> list[dict[str, object]]:
         ("spider2_sqlite_sota_baselines_sqlcoder_7b.json", "spider2-sqlite", "chess_style", "sqlcoder:7b", 24),
         ("spider2_sqlite_sota_baselines_qwen3_32b.json", "spider2-sqlite", "direct", "qwen3:32b", 24),
         ("spider2_dbt_existing_project.json", "spider2-dbt", "existing_project", "", 68),
-        ("spider2_dbt_llm_edit_boyuesql_deterministic_full.json", "spider2-dbt", "boyuesql_deterministic_full", "", 68),
+        ("spider2_dbt_llm_edit_ecsql_deterministic_full.json", "spider2-dbt", "ecsql_deterministic_full", "", 68),
         (
-            "spider2_dbt_llm_edit_boyuesql_ablation_no_declared_model_synthesis.json",
+            "spider2_dbt_llm_edit_ecsql_ablation_no_declared_model_synthesis.json",
             "spider2-dbt",
-            "boyuesql_ablation_no_declared_model_synthesis",
+            "ecsql_ablation_no_declared_model_synthesis",
             "",
             68,
         ),
         (
-            "spider2_dbt_llm_edit_boyuesql_ablation_no_duckdb_type_repair.json",
+            "spider2_dbt_llm_edit_ecsql_ablation_no_duckdb_type_repair.json",
             "spider2-dbt",
-            "boyuesql_ablation_no_duckdb_type_repair",
+            "ecsql_ablation_no_duckdb_type_repair",
             "",
             68,
         ),
         (
-            "spider2_dbt_llm_edit_boyuesql_ablation_no_missing_ref_source_fallback.json",
+            "spider2_dbt_llm_edit_ecsql_ablation_no_missing_ref_source_fallback.json",
             "spider2-dbt",
-            "boyuesql_ablation_no_missing_ref_source_fallback",
+            "ecsql_ablation_no_missing_ref_source_fallback",
             "",
             68,
         ),
         (
-            "spider2_dbt_llm_edit_boyuesql_ablation_no_declared_column_completion.json",
+            "spider2_dbt_llm_edit_ecsql_ablation_no_declared_column_completion.json",
             "spider2-dbt",
-            "boyuesql_ablation_no_declared_column_completion",
+            "ecsql_ablation_no_declared_column_completion",
             "",
             68,
         ),
         (
-            "spider2_dbt_llm_edit_boyuesql_ablation_no_related_dimension_enrichment.json",
+            "spider2_dbt_llm_edit_ecsql_ablation_no_related_dimension_enrichment.json",
             "spider2-dbt",
-            "boyuesql_ablation_no_related_dimension_enrichment",
+            "ecsql_ablation_no_related_dimension_enrichment",
             "",
             68,
         ),
@@ -214,7 +214,7 @@ def write_complete_synthetic_run(run_dir: Path, run_id: str) -> None:
     (summary_dir / f"server_{run_id}_results_snippet.tex").write_text("% synthetic snippet\n", encoding="utf-8")
     (summary_dir / f"server_{run_id}_abstract.tex").write_text(
         "\\begin{abstract}\n"
-        f"BoyueSQL Spider2 validated server run {run_id} includes a SOTA-style baseline "
+        f"EC-SQL Spider2 validated server run {run_id} includes a SOTA-style baseline "
         "comparison and semantic pass rate evidence for the synthetic acceptance-flow matrix.\n"
         "\\end{abstract}\n",
         encoding="utf-8",
@@ -233,7 +233,7 @@ def write_complete_synthetic_run(run_dir: Path, run_id: str) -> None:
 
 def smoke_acceptance_flow(run_id: str) -> list[str]:
     notes: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="boyuesql_acceptance_smoke_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ecsql_acceptance_smoke_") as tmp:
         root = Path(tmp)
         source = root / "source" / run_id
         imported = root / "imported" / run_id

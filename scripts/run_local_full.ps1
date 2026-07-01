@@ -7,7 +7,7 @@ param(
     [int]$DbtAblationLimit = 20,
     [switch]$WithLlm,
     [int]$LlmLimit = 8,
-    [string]$BoyueSqlModel = "qwen3-vl:8b",
+    [string]$EcSqlModel = "qwen3-vl:8b",
     [string]$BaselineModels = "qwen2.5-coder:7b,sqlcoder:7b",
     [string]$OllamaBaseUrl = "http://localhost:11434",
     [switch]$SkipExisting
@@ -88,7 +88,7 @@ DBT_LIMIT=$DbtLimit
 DBT_ABLATION_LIMIT=$DbtAblationLimit
 WITH_LLM=$($WithLlm.IsPresent)
 LLM_LIMIT=$LlmLimit
-BOYUESQL_MODELS=$BoyueSqlModel
+EC_SQL_MODELS=$EcSqlModel
 BASELINE_MODELS=$BaselineModels
 OLLAMA_BASE_URL=$OllamaBaseUrl
 "@ | Set-Content -Path (Join-Path $OutDir "run_config.env") -Encoding UTF8
@@ -139,7 +139,7 @@ Invoke-JsonStep "DBT starter-project baseline" (Join-Path $OutDir "spider2_dbt_e
     "--out", (Join-Path $OutDir "spider2_dbt_existing_project.json")
 )
 
-function Invoke-DbtBoyueSql {
+function Invoke-DbtEcSql {
     param(
         [string]$Label,
         [int]$Limit,
@@ -169,29 +169,29 @@ $fullFlags = @(
     "--declared-model-synthesis",
     "--declared-model-fallback"
 )
-Invoke-DbtBoyueSql "boyuesql_deterministic_full" $DbtLimit $fullFlags
+Invoke-DbtEcSql "ecsql_deterministic_full" $DbtLimit $fullFlags
 
-Invoke-DbtBoyueSql "boyuesql_ablation_no_declared_model_synthesis" $DbtAblationLimit @(
+Invoke-DbtEcSql "ecsql_ablation_no_declared_model_synthesis" $DbtAblationLimit @(
     "--missing-ref-fallback",
     "--missing-source-fallback",
     "--duckdb-type-fallback",
     "--declared-column-fallback",
     "--declared-model-fallback"
 )
-Invoke-DbtBoyueSql "boyuesql_ablation_no_duckdb_type_repair" $DbtAblationLimit @(
+Invoke-DbtEcSql "ecsql_ablation_no_duckdb_type_repair" $DbtAblationLimit @(
     "--missing-ref-fallback",
     "--missing-source-fallback",
     "--declared-column-fallback",
     "--declared-model-synthesis",
     "--declared-model-fallback"
 )
-Invoke-DbtBoyueSql "boyuesql_ablation_no_missing_ref_source_fallback" $DbtAblationLimit @(
+Invoke-DbtEcSql "ecsql_ablation_no_missing_ref_source_fallback" $DbtAblationLimit @(
     "--duckdb-type-fallback",
     "--declared-column-fallback",
     "--declared-model-synthesis",
     "--declared-model-fallback"
 )
-Invoke-DbtBoyueSql "boyuesql_ablation_no_declared_column_completion" $DbtAblationLimit @(
+Invoke-DbtEcSql "ecsql_ablation_no_declared_column_completion" $DbtAblationLimit @(
     "--missing-ref-fallback",
     "--missing-source-fallback",
     "--duckdb-type-fallback",
@@ -203,15 +203,15 @@ if ($WithLlm) {
     Write-Host "[local-full] checking local Ollama models"
     & $PythonExe (Join-Path $ProjectRoot "scripts\check_ollama_models.py") `
         --base-url $OllamaBaseUrl `
-        --model $BoyueSqlModel `
+        --model $EcSqlModel `
         --model $BaselineModels
 
-    Invoke-JsonStep "SQLite BoyueSQL LLM sample $BoyueSqlModel" (Join-Path $OutDir "spider2_sqlite_boyuesql_$($BoyueSqlModel -replace '[^A-Za-z0-9._-]+','_').json") @(
+    Invoke-JsonStep "SQLite EC-SQL LLM sample $EcSqlModel" (Join-Path $OutDir "spider2_sqlite_ecsql_$($EcSqlModel -replace '[^A-Za-z0-9._-]+','_').json") @(
         (Join-Path $ProjectRoot "scripts\run_spider2_sqlite_experiment.py"),
         "--manifest", $Manifest,
         "--spider-root", $SpiderRoot,
-        "--systems", "boyuesql,no_semantic_templates,no_schema_retrieval,no_repair",
-        "--model", $BoyueSqlModel,
+        "--systems", "ecsql,no_semantic_templates,no_schema_retrieval,no_repair",
+        "--model", $EcSqlModel,
         "--ollama-base-url", $OllamaBaseUrl,
         "--ollama-api", "chat",
         "--limit", "$LlmLimit",
@@ -219,7 +219,7 @@ if ($WithLlm) {
         "--num-predict", "2048",
         "--timeout", "180",
         "--max-repairs", "2",
-        "--out", (Join-Path $OutDir "spider2_sqlite_boyuesql_$($BoyueSqlModel -replace '[^A-Za-z0-9._-]+','_').json")
+        "--out", (Join-Path $OutDir "spider2_sqlite_ecsql_$($EcSqlModel -replace '[^A-Za-z0-9._-]+','_').json")
     )
 
     foreach ($model in ($BaselineModels -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {

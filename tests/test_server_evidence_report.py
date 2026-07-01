@@ -26,13 +26,13 @@ class ServerEvidenceReportTests(unittest.TestCase):
         self.assertTrue(paths.evidence_md.exists())
         self.assertTrue(paths.snippet_tex.exists())
         self.assertIn("Server Evidence Report", paths.evidence_md.read_text(encoding="utf-8"))
-        self.assertIn("Best BoyueSQL SQLite result", paths.snippet_tex.read_text(encoding="utf-8"))
+        self.assertIn("Best EC-SQL SQLite result", paths.snippet_tex.read_text(encoding="utf-8"))
         with paths.evidence_csv.open("r", encoding="utf-8", newline="") as f:
             rows = list(csv.DictReader(f))
         categories = {row["category"] for row in rows}
-        self.assertIn("sqlite_boyuesql_full", categories)
+        self.assertIn("sqlite_ecsql_full", categories)
         self.assertIn("sqlite_sota_baseline", categories)
-        self.assertIn("dbt_boyuesql_full", categories)
+        self.assertIn("dbt_ecsql_full", categories)
         self.assertIn("dbt_ablation", categories)
         baseline_rows = [row for row in rows if row["category"] == "sqlite_sota_baseline"]
         self.assertTrue(baseline_rows)
@@ -76,10 +76,10 @@ class ServerEvidenceReportTests(unittest.TestCase):
         summary_dir = run_dir / "summary"
         summary_dir.mkdir(parents=True, exist_ok=True)
         rows = [
-            ("spider2-sqlite", "boyuesql", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-            ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-            ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-            ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
+            ("spider2-sqlite", "ecsql", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+            ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+            ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+            ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
             ("spider2-sqlite", "direct", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
             ("spider2-sqlite", "din_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
             ("spider2-sqlite", "dail_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
@@ -87,12 +87,12 @@ class ServerEvidenceReportTests(unittest.TestCase):
             ("spider2-sqlite", "direct", "sqlcoder:7b", 24, "sqlite_baselines_sqlcoder.json"),
             ("spider2-sqlite", "direct", "qwen3:32b", 24, "sqlite_baselines_qwen3_32b.json"),
             ("spider2-dbt", "existing_project", "", 68, "spider2_dbt_existing_project.json"),
-            ("spider2-dbt", "boyuesql_deterministic_full", "", 68, "spider2_dbt_llm_edit_boyuesql_deterministic_full.json"),
-            ("spider2-dbt", "boyuesql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
-            ("spider2-dbt", "boyuesql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
-            ("spider2-dbt", "boyuesql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
-            ("spider2-dbt", "boyuesql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
-            ("spider2-dbt", "boyuesql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
+            ("spider2-dbt", "ecsql_deterministic_full", "", 68, "spider2_dbt_llm_edit_ecsql_deterministic_full.json"),
+            ("spider2-dbt", "ecsql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
+            ("spider2-dbt", "ecsql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
+            ("spider2-dbt", "ecsql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
+            ("spider2-dbt", "ecsql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
+            ("spider2-dbt", "ecsql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
         ]
         for _, _, _, _, artifact in rows:
             (run_dir / artifact).write_text('{"summary": {"cases": 1}, "results": []}\n', encoding="utf-8")

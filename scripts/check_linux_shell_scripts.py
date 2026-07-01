@@ -96,7 +96,7 @@ def check_shell_scripts(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run bash -n over BoyueSQL Linux shell scripts.")
+    parser = argparse.ArgumentParser(description="Run bash -n over EC-SQL Linux shell scripts.")
     parser.add_argument("scripts", nargs="*", help="Optional shell scripts. Defaults to scripts/*.sh.")
     parser.add_argument("--project-root", default=str(PROJECT_ROOT))
     parser.add_argument("--bash", default=os.environ.get("BASH_EXE", ""))

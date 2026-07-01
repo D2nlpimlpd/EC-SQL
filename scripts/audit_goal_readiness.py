@@ -25,8 +25,8 @@ from scripts.verify_server_release import (
 
 
 DEFAULT_DATASET_ROOT = Path(r"D:\text2sql_datasets\Spider2")
-DEFAULT_RELEASE = PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.zip"
-DEFAULT_CHECKSUM = PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.sha256"
+DEFAULT_RELEASE = PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.zip"
+DEFAULT_CHECKSUM = PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.sha256"
 DEFAULT_MANIFEST = PROJECT_ROOT / "artifacts" / "spider2_manifest.csv"
 DEFAULT_DBT68 = PROJECT_ROOT / "artifacts" / "spider2_dbt_llm_edit_dbt68_v10b_full.json"
 DEFAULT_SQLITE24 = (
@@ -34,9 +34,9 @@ DEFAULT_SQLITE24 = (
     / "artifacts"
     / "server_runs"
     / "sqlite_llm_server_gold24_v1"
-    / "spider2_sqlite_boyuesql_ablation_qwen2.5-coder_7b.json"
+    / "spider2_sqlite_ecsql_ablation_qwen2.5-coder_7b.json"
 )
-DEFAULT_ABSTRACT = PROJECT_ROOT / "artifacts" / "boyuesql_spider2_abstract.tex"
+DEFAULT_ABSTRACT = PROJECT_ROOT / "artifacts" / "ecsql_spider2_abstract.tex"
 DEFAULT_DATASET_SCALE_JSON = PROJECT_ROOT / "artifacts" / "dataset_scale_report.json"
 DEFAULT_DATASET_SCALE_MD = PROJECT_ROOT / "artifacts" / "dataset_scale_report.md"
 DEFAULT_SERVER_RUN_ID = "server_full_spider2"
@@ -232,7 +232,7 @@ def check_server_upload_packet(run_id: str = DEFAULT_SERVER_RUN_ID) -> Check:
             dataset_root=DEFAULT_DATASET_ROOT,
             manifest=DEFAULT_MANIFEST,
             host="user@server.example.com",
-            remote_dir="~/boyuesql_spider2_run",
+            remote_dir="~/ecsql_spider2_run",
             local_return_dir=PROJECT_ROOT / "artifacts" / "server_return",
         )
         errors = verify_packet(packet, checksum)
@@ -265,7 +265,7 @@ def check_server_upload_packet_smoke(run_id: str = DEFAULT_SERVER_RUN_ID) -> Che
 
 
 def check_server_acceptance_flow_smoke() -> Check:
-    if os.environ.get("BOYUESQL_IN_FINALIZER_AUDIT") == "1":
+    if os.environ.get("EC_SQL_IN_FINALIZER_AUDIT") == "1":
         return Check(
             "Server result acceptance flow smoke test",
             "PASS",
@@ -284,9 +284,9 @@ def check_sqlite24(path: Path) -> Check:
     if not path.exists():
         return Check("SQLite local gold evidence", "PENDING", f"missing artifact: {path}")
     summary = load_json(path).get("summary") or {}
-    metrics = summary.get("boyuesql") if isinstance(summary, dict) else None
+    metrics = summary.get("ecsql") if isinstance(summary, dict) else None
     if not isinstance(metrics, dict):
-        return Check("SQLite local gold evidence", "FAIL", f"missing boyuesql summary in {path}")
+        return Check("SQLite local gold evidence", "FAIL", f"missing ecsql summary in {path}")
     cases = int(metrics.get("cases") or 0)
     er = number(metrics.get("ER"))
     re_rate = number(metrics.get("RE"))
@@ -319,7 +319,7 @@ def check_dbt68(path: Path) -> Check:
 
 def check_release(archive: Path, checksum: Path) -> Check:
     if archive.exists():
-        errors = verify_archive(archive, checksum, "boyuesql_spider2_server")
+        errors = verify_archive(archive, checksum, "ecsql_spider2_server")
         if errors:
             return Check("Clean Linux server release", "FAIL", "; ".join(errors[:5]))
         size_mb = archive.stat().st_size / (1024 * 1024)
@@ -444,7 +444,7 @@ def check_release_smoke(archive: Path, checksum: Path) -> Check:
     try:
         from scripts.smoke_test_server_release import smoke_release
 
-        notes = smoke_release(archive, checksum, "boyuesql_spider2_server")
+        notes = smoke_release(archive, checksum, "ecsql_spider2_server")
     except Exception as exc:
         return Check("Server release smoke test", "FAIL", f"{type(exc).__name__}: {exc}")
     return Check("Server release smoke test", "PASS", "; ".join(notes))
@@ -520,12 +520,12 @@ def check_handoff_dry_run(server_run_id: str = "server_full_spider2") -> Check:
         ],
         "diagnostics": [
             "execute=False",
-            f"cd ~/boyuesql_spider2_run/{packet_dir}",
+            f"cd ~/ecsql_spider2_run/{packet_dir}",
             "RUN_PACKET_ON_SERVER.sh diagnostics",
         ],
         "wait": [
             "execute=False",
-            f"cd ~/boyuesql_spider2_run/{packet_dir}",
+            f"cd ~/ecsql_spider2_run/{packet_dir}",
             "checking result bundle",
             "server_job.pid",
             "timed out after 10s",
@@ -551,13 +551,13 @@ def check_handoff_dry_run(server_run_id: str = "server_full_spider2") -> Check:
 
 def check_abstract(path: Path) -> Check:
     if not path.exists():
-        fallback = PROJECT_ROOT / "boyuesql_spider2_abstract.tex"
+        fallback = PROJECT_ROOT / "ecsql_spider2_abstract.tex"
         if fallback.exists():
             path = fallback
     if not path.exists():
         return Check("Paper abstract generated", "PENDING", f"missing {path}")
     text = path.read_text(encoding="utf-8")
-    required_terms = ["BoyueSQL", "Spider2", "67.74", "24", "qwen2.5-coder:7b", "Linux-ready"]
+    required_terms = ["EC-SQL", "Spider2", "67.74", "24", "qwen2.5-coder:7b", "Linux-ready"]
     missing = [term for term in required_terms if term not in text]
     if missing:
         return Check("Paper abstract generated", "FAIL", f"missing terms: {', '.join(missing)}")
@@ -584,7 +584,7 @@ def check_server_result_abstract(
         for term in [
             r"\begin{abstract}",
             r"\end{abstract}",
-            "BoyueSQL",
+            "EC-SQL",
             "Spider2",
             "validated server run",
             "SOTA-style baseline",
@@ -662,7 +662,7 @@ def check_server_matrix(server_run_id: str | None, run_dir_override: Path | None
     systems = {str(row.get("system") or "") for row in nonempty_rows}
     models = {str(row.get("model") or "") for row in nonempty_rows if str(row.get("model") or "")}
 
-    sqlite_full = [row for row in sqlite_rows if row.get("system") == "boyuesql" and integer(row.get("cases")) >= 20]
+    sqlite_full = [row for row in sqlite_rows if row.get("system") == "ecsql" and integer(row.get("cases")) >= 20]
     sqlite_ablations = {
         str(row.get("system") or "")
         for row in sqlite_rows
@@ -681,7 +681,7 @@ def check_server_matrix(server_run_id: str | None, run_dir_override: Path | None
     dbt_full = [
         row
         for row in dbt_rows
-        if "boyuesql_deterministic_full" in str(row.get("system") or "") and integer(row.get("cases")) >= 68
+        if "ecsql_deterministic_full" in str(row.get("system") or "") and integer(row.get("cases")) >= 68
     ]
     dbt_ablations = {
         str(row.get("system") or "")
@@ -696,7 +696,7 @@ def check_server_matrix(server_run_id: str | None, run_dir_override: Path | None
 
     missing_requirements: list[str] = []
     if not sqlite_full:
-        missing_requirements.append("SQLite BoyueSQL full row with >=20 gold cases")
+        missing_requirements.append("SQLite EC-SQL full row with >=20 gold cases")
     if len(sqlite_ablations) < 3:
         missing_requirements.append(f">=3 SQLite ablations (found {len(sqlite_ablations)})")
     if len(sqlite_baselines) < 4:
@@ -706,7 +706,7 @@ def check_server_matrix(server_run_id: str | None, run_dir_override: Path | None
     if not dbt_baseline:
         missing_requirements.append("DBT starter-project baseline with 68 cases")
     if not dbt_full:
-        missing_requirements.append("DBT BoyueSQL deterministic full with 68 cases")
+        missing_requirements.append("DBT EC-SQL deterministic full with 68 cases")
     if len(dbt_ablations) < 5:
         missing_requirements.append(f">=5 DBT ablations with 68 cases (found {len(dbt_ablations)})")
 
@@ -735,7 +735,7 @@ def check_server_matrix(server_run_id: str | None, run_dir_override: Path | None
 def markdown_report(checks: Iterable[Check]) -> str:
     rows = list(checks)
     lines = [
-        "# BoyueSQL Goal Readiness Audit",
+        "# EC-SQL Goal Readiness Audit",
         "",
         "| Requirement | Status | Evidence |",
         "| --- | --- | --- |",
@@ -754,7 +754,7 @@ def markdown_report(checks: Iterable[Check]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audit BoyueSQL goal readiness without redefining the original objective.")
+    parser = argparse.ArgumentParser(description="Audit EC-SQL goal readiness without redefining the original objective.")
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     parser.add_argument("--sqlite24", default=str(DEFAULT_SQLITE24))

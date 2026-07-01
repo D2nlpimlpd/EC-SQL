@@ -9,9 +9,9 @@ from typing import Any
 import requests
 from flask import Flask, jsonify, request
 
-from boyuesql_generic import connect_database, default_config_from_env, get_dialect
-from boyuesql_generic.dictionary import SchemaDictionary, load_schema_dictionary
-from boyuesql_generic.retrieval import retrieve_tables, schema_prompt
+from ecsql_generic import connect_database, default_config_from_env, get_dialect
+from ecsql_generic.dictionary import SchemaDictionary, load_schema_dictionary
+from ecsql_generic.retrieval import retrieve_tables, schema_prompt
 
 
 SQL_BLOCK_RE = re.compile(r"```(?:sql)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
@@ -36,7 +36,7 @@ def env_bool(name: str, default: bool) -> bool:
 
 
 def runtime_config():
-    return default_config_from_env(default_dialect=os.environ.get("BOYUESQL_DIALECT", "sqlite"))
+    return default_config_from_env(default_dialect=os.environ.get("EC_SQL_DIALECT", "sqlite"))
 
 
 def schema_source_path() -> str:
@@ -73,7 +73,7 @@ def extract_sql(text: str) -> str:
 
 
 def maybe_deterministic_sql(question: str, schema: SchemaDictionary) -> tuple[str, str]:
-    if not env_bool("BOYUESQL_ENABLE_SQLITE_TEMPLATES", True):
+    if not env_bool("EC_SQL_ENABLE_SQLITE_TEMPLATES", True):
         return "", ""
     if get_dialect(schema.dialect).name != "sqlite":
         return "", ""
@@ -89,7 +89,7 @@ def build_prompt(question: str, schema: SchemaDictionary) -> str:
     selected = retrieve_tables(schema, question, limit=limit, relation_closure=2)
     schema_text = schema_prompt([item.table for item in selected])
     dialect = get_dialect(schema.dialect)
-    return f"""You are BoyueSQL, a generic enterprise Text-to-SQL system.
+    return f"""You are EC-SQL, a generic enterprise Text-to-SQL system.
 Return exactly one read-only SQL query and no prose.
 Use only schema-provided identifiers.
 {dialect.error_prompt_rules()}
@@ -163,7 +163,7 @@ def health():
     return jsonify(
         {
             "ok": True,
-            "service": "boyuesql",
+            "service": "ecsql",
             "dialect": cfg.dialect,
             "schema_source": source,
             "schema_source_exists": bool(source and (source == ":memory:" or Path(source).exists())),

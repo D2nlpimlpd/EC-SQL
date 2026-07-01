@@ -10,8 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from boyuesql_generic import DuckDBDialect
-from boyuesql_generic.dictionary import from_duckdb_database
+from ecsql_generic import DuckDBDialect
+from ecsql_generic.dictionary import from_duckdb_database
 
 
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:

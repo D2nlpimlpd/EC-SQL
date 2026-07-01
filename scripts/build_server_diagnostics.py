@@ -174,7 +174,7 @@ def write_diagnostics(run_id: str, out_dir: str = "", tail_lines: int = 200) -> 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Write diagnostics for a BoyueSQL server run.")
+    parser = argparse.ArgumentParser(description="Write diagnostics for a EC-SQL server run.")
     parser.add_argument("--run-id", default=os.environ.get("RUN_ID", ""), help="Server RUN_ID.")
     parser.add_argument("--out-dir", default=os.environ.get("OUT_DIR", ""), help="Optional server run directory.")
     parser.add_argument("--tail", type=int, default=200, help="Log lines to include.")

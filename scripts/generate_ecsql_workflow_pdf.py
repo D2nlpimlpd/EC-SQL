@@ -9,7 +9,7 @@ from reportlab.pdfgen import canvas
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "figures" / "boyuesql_workflow.pdf"
+OUT = ROOT / "figures" / "ecsql_workflow.pdf"
 
 W = 7.35 * inch
 H = 5.35 * inch

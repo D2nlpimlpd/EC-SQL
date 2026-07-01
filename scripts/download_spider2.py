@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from boyuesql_generic.datasets import (
+from ecsql_generic.datasets import (
     ensure_spider2,
     ensure_spider2_dbt_databases,
     ensure_spider2_localdb,

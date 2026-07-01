@@ -18,8 +18,8 @@ from scripts.audit_goal_readiness import DEFAULT_DATASET_ROOT, DEFAULT_MANIFEST
 from scripts.import_server_result_bundle import import_bundle
 
 
-DEFAULT_ABSTRACT_COPY = PROJECT_ROOT / "artifacts" / "boyuesql_spider2_server_result_abstract.tex"
-DEFAULT_ROOT_ABSTRACT_COPY = PROJECT_ROOT / "boyuesql_spider2_server_result_abstract.tex"
+DEFAULT_ABSTRACT_COPY = PROJECT_ROOT / "artifacts" / "ecsql_spider2_server_result_abstract.tex"
+DEFAULT_ROOT_ABSTRACT_COPY = PROJECT_ROOT / "ecsql_spider2_server_result_abstract.tex"
 
 
 def run_audit(
@@ -48,7 +48,7 @@ def run_audit(
     if strict:
         cmd.append("--strict")
     env = os.environ.copy()
-    env["BOYUESQL_IN_FINALIZER_AUDIT"] = "1"
+    env["EC_SQL_IN_FINALIZER_AUDIT"] = "1"
     completed = subprocess.run(
         cmd,
         cwd=str(PROJECT_ROOT),
@@ -140,7 +140,7 @@ def finalize_server_result(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Final local acceptance for a returned BoyueSQL server run: verify/import "
+            "Final local acceptance for a returned EC-SQL server run: verify/import "
             "the result bundle, run the strict readiness audit, and copy the "
             "server-result abstract to stable paper artifact paths."
         )

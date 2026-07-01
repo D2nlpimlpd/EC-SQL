@@ -30,12 +30,12 @@ def contract_payload(run_id: str, out_dir: Path) -> dict[str, Any]:
     artifacts = expected_artifacts(config)
     enabled_artifacts = [row for row in artifacts if row.get("enabled") == "1"]
     return {
-        "contract_name": "BoyueSQL Spider2 server acceptance contract",
+        "contract_name": "EC-SQL Spider2 server acceptance contract",
         "run_id": run_id,
         "version": 1,
         "purpose": (
             "Define the machine-checkable evidence required before the generalized "
-            "BoyueSQL Spider2/SOTA/ablation goal can be claimed complete."
+            "EC-SQL Spider2/SOTA/ablation goal can be claimed complete."
         ),
         "dataset_scale_thresholds": {
             "manifest_rows_min": MIN_MANIFEST_ROWS,
@@ -50,12 +50,12 @@ def contract_payload(run_id: str, out_dir: Path) -> dict[str, Any]:
             ],
         },
         "server_matrix_thresholds": {
-            "sqlite_boyuesql_full_min_cases": 20,
+            "sqlite_ecsql_full_min_cases": 20,
             "sqlite_ablation_rows_min": 3,
             "sqlite_sota_style_baseline_rows_min": 4,
             "baseline_models_min": 3,
             "dbt_starter_baseline_cases_min": 68,
-            "dbt_boyuesql_full_cases_min": 68,
+            "dbt_ecsql_full_cases_min": 68,
             "dbt_ablation_rows_min": 5,
             "required_reports": [
                 f"summary/server_{run_id}.csv",
@@ -112,7 +112,7 @@ def escape_md(value: Any) -> str:
 def contract_markdown(payload: dict[str, Any]) -> str:
     run_id = payload["run_id"]
     lines = [
-        f"# BoyueSQL Server Acceptance Contract: {run_id}",
+        f"# EC-SQL Server Acceptance Contract: {run_id}",
         "",
         payload["purpose"],
         "",
@@ -180,7 +180,7 @@ def write_contract(payload: dict[str, Any], json_out: Path, md_out: Path) -> Non
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build the BoyueSQL server acceptance contract.")
+    parser = argparse.ArgumentParser(description="Build the EC-SQL server acceptance contract.")
     parser.add_argument("--run-id", default=os.environ.get("RUN_ID", "server_full_spider2"))
     parser.add_argument("--json-out", default="")
     parser.add_argument("--md-out", default="")

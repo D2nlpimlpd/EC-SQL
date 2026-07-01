@@ -1133,7 +1133,7 @@ class DbtModelSynthesisTests(unittest.TestCase):
             applied = apply_lowercase_columns_macro(root)
 
             self.assertEqual(len(applied), 1)
-            macro = root / "macros" / "boyuesql_lowercase_columns.sql"
+            macro = root / "macros" / "ecsql_lowercase_columns.sql"
             self.assertTrue(macro.exists())
             text = macro.read_text(encoding="utf-8")
             self.assertIn("macro lowercase_columns", text)
@@ -1152,7 +1152,7 @@ class DbtModelSynthesisTests(unittest.TestCase):
             applied = apply_common_compat_macros(root)
 
             self.assertEqual(applied[0]["kind"], "common_compat_macros")
-            macro = root / "macros" / "boyuesql_common_compat.sql"
+            macro = root / "macros" / "ecsql_common_compat.sql"
             text = macro.read_text(encoding="utf-8")
             self.assertIn("macro to_date_key", text)
             self.assertIn("try_strptime(cast({{ column_name }} as varchar), '%Y%m%d')", text)
@@ -1234,7 +1234,7 @@ class DbtModelSynthesisTests(unittest.TestCase):
             db = root / "case.duckdb"
             gold = root / "gold.duckdb"
             with duckdb.connect(str(db)) as conn:
-                conn.execute("create table sap_faglflext_data(__boyuesql_placeholder varchar)")
+                conn.execute("create table sap_faglflext_data(__ecsql_placeholder varchar)")
             with duckdb.connect(str(gold)) as conn:
                 conn.execute("create table sap_faglflext_data(rclnt varchar, amount int)")
                 conn.execute("insert into sap_faglflext_data values ('800', 7)")
@@ -1535,8 +1535,8 @@ class DbtModelSynthesisTests(unittest.TestCase):
 
         self.assertIn("from {{ ref('finishes_by_driver') }}", sql)
         self.assertIn("rank() over (order by fastest_laps desc) as rank", sql)
-        self.assertIn("row_number() over (order by driver_id, driver_full_name) as __boyuesql_source_order", sql)
-        self.assertIn("order by rank, __boyuesql_source_order", sql)
+        self.assertIn("row_number() over (order by driver_id, driver_full_name) as __ecsql_source_order", sql)
+        self.assertIn("order by rank, __ecsql_source_order", sql)
         self.assertIn("limit 20", sql)
 
     def test_flicks_actor_rating_uses_credit_person_and_movie_scores(self) -> None:
@@ -4576,10 +4576,10 @@ class DbtModelSynthesisTests(unittest.TestCase):
             text = calendar.read_text(encoding="utf-8")
 
             self.assertEqual(len(edits), 1)
-            self.assertIn("boyuesql_calendar_end_date", text)
+            self.assertIn("ecsql_calendar_end_date", text)
             self.assertIn("SPIDER2_DBT_CURRENT_DATE", text)
             self.assertIn("2024-09-08", text)
-            self.assertIn("end_date=\"cast('\" ~ boyuesql_calendar_end_date ~ \"' as date)\"", text)
+            self.assertIn("end_date=\"cast('\" ~ ecsql_calendar_end_date ~ \"' as date)\"", text)
 
     def test_pin_spider2_calendar_current_date_replaces_dateadd_current_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

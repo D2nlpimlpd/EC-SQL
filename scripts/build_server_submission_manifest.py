@@ -48,8 +48,8 @@ def read_checksum(path: Path) -> dict[str, str]:
 
 def command_plan(run_id: str) -> list[str]:
     return [
-        "python3 -m zipfile -e boyuesql_spider2_server.zip .  # or: unzip boyuesql_spider2_server.zip",
-        "cd boyuesql_spider2_server",
+        "python3 -m zipfile -e ecsql_spider2_server.zip .  # or: unzip ecsql_spider2_server.zip",
+        "cd ecsql_spider2_server",
         "bash scripts/one_click_linux.sh preflight",
         "# Before upload/launch from the local machine: python scripts/run_server_handoff.py --host user@server --stage remote-preflight --run-id "
         f"{run_id} --execute",
@@ -145,7 +145,7 @@ def build_manifest(
     )
     return {
         "submission": {
-            "name": "BoyueSQL Spider2 Linux server run",
+            "name": "EC-SQL Spider2 Linux server run",
             "run_id": run_id,
             "release_archive": str(archive),
             "release_archive_name": archive.name,
@@ -253,7 +253,7 @@ def write_submission_manifest(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build a server upload/submission manifest for BoyueSQL.")
+    parser = argparse.ArgumentParser(description="Build a server upload/submission manifest for EC-SQL.")
     parser.add_argument("--run-id", default="server_full_spider2")
     parser.add_argument("--out-dir", default=str(PROJECT_ROOT / "artifacts" / "server_release"))
     parser.add_argument("--archive", default=str(DEFAULT_RELEASE))

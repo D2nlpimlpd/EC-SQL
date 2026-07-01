@@ -133,7 +133,7 @@ def import_bundle(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Verify and import a returned BoyueSQL server result bundle into "
+            "Verify and import a returned EC-SQL server result bundle into "
             "artifacts/server_runs/<RUN_ID>/ for local paper/audit use."
         )
     )

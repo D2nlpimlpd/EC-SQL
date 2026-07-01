@@ -79,7 +79,7 @@ def download_model(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Download HuggingFace model snapshots for BoyueSQL server baselines."
+        description="Download HuggingFace model snapshots for EC-SQL server baselines."
     )
     parser.add_argument(
         "--model",

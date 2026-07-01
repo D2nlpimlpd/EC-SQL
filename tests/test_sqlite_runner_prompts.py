@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from boyuesql_generic import SQLiteDialect
-from boyuesql_generic.dictionary import from_sqlite_database
+from ecsql_generic import SQLiteDialect
+from ecsql_generic.dictionary import from_sqlite_database
 from scripts.run_spider2_sqlite_experiment import (
     deterministic_alias_column_repair,
     deterministic_semantic_guard_repair,
@@ -101,7 +101,7 @@ class SQLiteRunnerPromptTests(unittest.TestCase):
                 "self_debug_style",
                 "mac_sql_style",
                 "chess_style",
-                "boyuesql",
+                "ecsql",
                 "no_external_knowledge",
                 "no_schema_retrieval",
             ]

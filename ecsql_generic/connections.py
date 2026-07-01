@@ -1,4 +1,4 @@
-"""Database connection and catalog helpers for BoyueSQL.
+"""Database connection and catalog helpers for EC-SQL.
 
 The production entrypoint historically imported Oracle drivers at module import
 time and queried Oracle catalog views directly.  This adapter keeps those
@@ -39,7 +39,7 @@ class DatabaseConfig:
             return default
 
         dialect = str(
-            pick("DB_DIALECT", "BOYUESQL_DIALECT", "dialect", "dbDialect", default=default_dialect)
+            pick("DB_DIALECT", "EC_SQL_DIALECT", "dialect", "dbDialect", default=default_dialect)
         ).strip().lower()
         port_raw = pick("DB_PORT", "port", "dbPort", default=0)
         try:
@@ -81,7 +81,7 @@ class DatabaseConfig:
 def default_config_from_env(default_dialect: str = "generic") -> DatabaseConfig:
     return DatabaseConfig.from_mapping(
         {
-            "DB_DIALECT": os.environ.get("BOYUESQL_DIALECT") or os.environ.get("DB_DIALECT") or default_dialect,
+            "DB_DIALECT": os.environ.get("EC_SQL_DIALECT") or os.environ.get("DB_DIALECT") or default_dialect,
             "DB_USER": os.environ.get("DB_USER", ""),
             "DB_PASSWORD": os.environ.get("DB_PASSWORD", ""),
             "DB_HOST": os.environ.get("DB_HOST", "127.0.0.1"),

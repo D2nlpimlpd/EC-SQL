@@ -30,12 +30,12 @@ INCLUDE_FILES = [
     "SERVER_MODEL_GUIDE.md",
     "GENERALIZATION_PLAN.md",
     "RAGANYTHING_SCHEMA_KG_PROOF.md",
-    "boyuesql_spider2_abstract.tex",
-    "boyuesql_service.py",
+    "ecsql_spider2_abstract.tex",
+    "ecsql_service.py",
 ]
 
 INCLUDE_DIRS = [
-    "boyuesql_generic",
+    "ecsql_generic",
     "scripts",
     "tests",
     "baselines",
@@ -128,7 +128,7 @@ def build_release(out_dir: Path, name: str) -> Path:
     manifest.write_text(
         "\n".join(
             [
-                "BoyueSQL clean server release",
+                "EC-SQL clean server release",
                 "",
                 "Included allowlist:",
                 *[f"- {item}" for item in copied],
@@ -140,7 +140,7 @@ def build_release(out_dir: Path, name: str) -> Path:
                 "- dataset files and benchmark outputs; download/regenerate them with bash scripts/one_click_linux.sh setup",
                 "",
                 "Server setup:",
-                "1. extract this package with unzip, or: python3 -m zipfile -e boyuesql_spider2_server.zip .",
+                "1. extract this package with unzip, or: python3 -m zipfile -e ecsql_spider2_server.zip .",
                 "2. bash scripts/one_click_linux.sh preflight",
                 "3. bash scripts/one_click_linux.sh setup   # Python env + Spider2 + Ollama/HF model downloads",
                 "4. bash scripts/one_click_linux.sh models",
@@ -170,7 +170,7 @@ def build_release(out_dir: Path, name: str) -> Path:
                 "28. Manual packet follow-up: bash RUN_PACKET_ON_SERVER.sh wait && bash RUN_PACKET_ON_SERVER.sh bundle && bash RUN_PACKET_ON_SERVER.sh audit",
                 "29. Upload packet smoke test: python scripts/smoke_test_server_upload_packet.py --packet artifacts/server_release/<server_run_id>_server_upload_packet.zip",
                 "30. Result acceptance flow smoke test: python scripts/smoke_test_server_acceptance_flow.py",
-                "31. Command sheet: python scripts/build_server_handoff_commands.py --host user@server --remote-dir ~/boyuesql_spider2_run",
+                "31. Command sheet: python scripts/build_server_handoff_commands.py --host user@server --remote-dir ~/ecsql_spider2_run",
                 "32. Remote preflight: python scripts/run_server_handoff.py --host user@server --stage remote-preflight --execute",
                 "33. Dry-run/executor: python scripts/run_server_handoff.py --host user@server --stage submit",
                 "34. One-command supervised server run: python scripts/run_server_handoff.py --host user@server --stage supervise --execute",
@@ -204,9 +204,9 @@ def build_release(out_dir: Path, name: str) -> Path:
             / "artifacts"
             / "server_runs"
             / "sqlite_llm_server_gold24_v1"
-            / "spider2_sqlite_boyuesql_ablation_qwen2.5-coder_7b.json",
+            / "spider2_sqlite_ecsql_ablation_qwen2.5-coder_7b.json",
             dbt68=PROJECT_ROOT / "artifacts" / "spider2_dbt_llm_edit_dbt68_v10b_full.json",
-            abstract=PROJECT_ROOT / "artifacts" / "boyuesql_spider2_abstract.tex",
+            abstract=PROJECT_ROOT / "artifacts" / "ecsql_spider2_abstract.tex",
         )
     except Exception as exc:
         print(f"warning: server submission manifest was not generated: {exc}")
@@ -214,9 +214,9 @@ def build_release(out_dir: Path, name: str) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build a clean BoyueSQL server release package.")
+    parser = argparse.ArgumentParser(description="Build a clean EC-SQL server release package.")
     parser.add_argument("--out-dir", default=str(PROJECT_ROOT / "artifacts" / "server_release"))
-    parser.add_argument("--name", default="boyuesql_spider2_server")
+    parser.add_argument("--name", default="ecsql_spider2_server")
     args = parser.parse_args()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

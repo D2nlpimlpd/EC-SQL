@@ -1,8 +1,8 @@
-# BoyueSQL Generalization Work Plan
+# EC-SQL Generalization Work Plan
 
 This repository is being migrated from the earlier private Oracle
-prototype into a database-agnostic BoyueSQL stack. The generic layer in
-`boyuesql_generic/` is the migration target, and current-database-specific
+prototype into a database-agnostic EC-SQL stack. The generic layer in
+`ecsql_generic/` is the migration target, and current-database-specific
 runtime artifacts have been removed from the main runnable path.
 
 ## Dataset Choice
@@ -35,12 +35,12 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
 
 1. Remove hard-coded production database values from source files.
 2. Route SQL syntax, row limiting, quoting, and error classification through
-   `boyuesql_generic.dialects`.
-3. Route schema ingestion through `boyuesql_generic.dictionary`.
+   `ecsql_generic.dialects`.
+3. Route schema ingestion through `ecsql_generic.dictionary`.
 4. Keep database-specific behavior behind adapters and `.env` settings.
 5. Evaluate with execution rate, exact result match, and semantic pass rate.
 6. Run ablations:
-   - full BoyueSQL
+   - full EC-SQL
    - without schema-KG retrieval
    - without live-catalog validation
    - without repair
@@ -54,38 +54,38 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
 
 ## Current Status
 
-- Generic dialect adapters exist in `boyuesql_generic/dialects.py`.
+- Generic dialect adapters exist in `ecsql_generic/dialects.py`.
   The main serving path now uses the configured dialect adapter for SQL row
   limiting/probing, date-range predicates, prompt rules, and canonical error
   classification instead of embedding `ROWNUM`, `LIMIT`, or vendor errors
   directly in generation logic.
 - Generic database connection and catalog helpers exist in
-  `boyuesql_generic/connections.py`. Oracle is loaded lazily only for Oracle
+  `ecsql_generic/connections.py`. Oracle is loaded lazily only for Oracle
   connections; SQLite and DuckDB can be used without Oracle client libraries.
-  The clean generic Flask service in `boyuesql_service.py` exposes `/health`,
+  The clean generic Flask service in `ecsql_service.py` exposes `/health`,
   `/api/schema`, and `/api/query`; runtime SQL execution is routed through this
   adapter boundary.
 - The default service dialect is now SQLite rather than Oracle. `generic`
   connection configs with `.sqlite`, `.sqlite3`, `.db`, `.duckdb`, or `.ddb`
   paths are resolved to the corresponding local connector, so one-command
   startup is usable for local benchmark databases without private credentials.
-- Portable schema dictionary loaders exist in `boyuesql_generic/dictionary.py`.
-- Lightweight schema retrieval utilities exist in `boyuesql_generic/retrieval.py`.
+- Portable schema dictionary loaders exist in `ecsql_generic/dictionary.py`.
+- Lightweight schema retrieval utilities exist in `ecsql_generic/retrieval.py`.
 - Spider2 download/inspection helper exists in `scripts/download_spider2.py`.
 - Linux one-command setup/start scripts exist in `scripts/setup_linux.sh` and
   `scripts/start_linux.sh`.
-  The default startup entrypoint is now the generic `boyuesql_service.py`.
+  The default startup entrypoint is now the generic `ecsql_service.py`.
 - `scripts/build_server_release.py` builds a clean allowlisted server zip under
   `artifacts/server_release/`. The package includes the generic service,
   reusable library, scripts, tests, requirements, documentation, baselines, and
   modified RagAnything source, while excluding legacy demo entrypoints, old UI
   assets, local papers, datasets, logs, and generated benchmark outputs.
 - Linux one-command benchmark script exists in
-  `scripts/run_server_experiments.sh`. It runs smoke gates, SQLite BoyueSQL
+  `scripts/run_server_experiments.sh`. It runs smoke gates, SQLite EC-SQL
   ablations, prompt-only baselines, DBT starter-project evaluation, the current
-  DBT BoyueSQL deterministic edit configuration, DBT deterministic ablations,
+  DBT EC-SQL deterministic edit configuration, DBT deterministic ablations,
   optional DBT LLM editing, and final aggregation.
-  It supports comma-separated `BOYUESQL_MODELS`, `BASELINE_MODELS`, and
+  It supports comma-separated `EC_SQL_MODELS`, `BASELINE_MODELS`, and
   `DBT_EDIT_MODELS` lists for server-side multi-model comparisons.
 - `scripts/run_full_server_benchmark.sh` wraps the benchmark runner with a full
   no-credential Spider2 server profile for SQLite, DBT, ablations, and
@@ -146,28 +146,28 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
   remains non-zero until the full Linux/server SOTA matrix has actually been
   executed and summarized. The server-matrix check requires aggregate summary,
   case, and failure-diagnostic reports plus non-empty JSON artifacts covering
-  BoyueSQL full results, SQLite ablations, SOTA-style baselines across at least
-  two models, the DBT starter baseline, DBT BoyueSQL deterministic full, and
+  EC-SQL full results, SQLite ablations, SOTA-style baselines across at least
+  two models, the DBT starter baseline, DBT EC-SQL deterministic full, and
   multiple DBT ablations.
 - `scripts/aggregate_experiment_results.py` normalizes SQLite, DBT, and DBT
   LLM-edit JSON artifacts into summary CSV, case CSV, and Markdown tables.
   It also preserves DBT deterministic/ablation labels from artifact names so
-  server-run tables distinguish full BoyueSQL from ablated configurations.
-- `scripts/build_boyuesql_evidence_report.py` regenerates the current paper
+  server-run tables distinguish full EC-SQL from ablated configurations.
+- `scripts/build_ecsql_evidence_report.py` regenerates the current paper
   evidence snapshot from saved artifacts, writing
-  `artifacts/boyuesql_evidence_report.md` and
-  `artifacts/boyuesql_evidence_table.csv` without rerunning models or DBT.
+  `artifacts/ecsql_evidence_report.md` and
+  `artifacts/ecsql_evidence_table.csv` without rerunning models or DBT.
 - The current local SQLite LLM gold-evaluable sanity run is stored under
   `artifacts/server_runs/sqlite_llm_server_gold5_v2/`. After adding
   schema-triggered semantic templates for multi-metric top-k, annual
-  top-category uniqueness, and filtered shortest-match queries, BoyueSQL with
+  top-category uniqueness, and filtered shortest-match queries, EC-SQL with
   `qwen2.5-coder:7b` reaches 5/5 SER, while direct and DIN-style baselines
   using `qwen2.5-coder:7b` and `sqlcoder:7b` reach 0/5 SER.
 - The latest local SQLite LLM gold-evaluable comparison is stored under
   `artifacts/server_runs/sqlite_llm_server_gold10_v2_compare/`. After adding
   public-schema semantic templates for IPL batting/loss semantics, Brazilian
   e-commerce delivered-order aggregation, and Pagila actor/rental-hour
-  reasoning, BoyueSQL with `qwen2.5-coder:7b` reaches ER=100.0, RE=100.0, and
+  reasoning, EC-SQL with `qwen2.5-coder:7b` reaches ER=100.0, RE=100.0, and
   SER=100.0 on 10/10 gold cases. On the same ten cases, direct and
   DIN-SQL-style baselines with `qwen2.5-coder:7b` reach 0.0 SER, and direct
   and DIN-SQL-style baselines with `sqlcoder:7b` also reach 0.0 SER.
@@ -176,8 +176,8 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
   public-schema templates for hardware product growth, Pizza Runner revenue
   and ingredient accounting, shopping-cart funnel metrics, IMDB
   director-collaboration counting, rank-wise salary comparison, and Sakila
-  monthly analytics, BoyueSQL with `qwen2.5-coder:7b` reaches ER=100.0,
-  RE=100.0, and SER=100.0 on 20/20 gold cases. The same BoyueSQL path without
+  monthly analytics, EC-SQL with `qwen2.5-coder:7b` reaches ER=100.0,
+  RE=100.0, and SER=100.0 on 20/20 gold cases. The same EC-SQL path without
   deterministic semantic templates reaches SER=5.0, while direct and
   DIN-SQL-style prompt baselines with `qwen2.5-coder:7b` or `sqlcoder:7b`
   reach SER=0.0.
@@ -185,10 +185,10 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
   `artifacts/server_runs/sqlite_llm_server_gold24_v1/`. With the additional
   public-schema templates for delivery hub month-over-month growth, European
   soccer lowest-win teams, mid-June weekly-sales effects, and Formula 1 yearly
-  points leaders, BoyueSQL with `qwen2.5-coder:7b` reaches ER=100.0,
+  points leaders, EC-SQL with `qwen2.5-coder:7b` reaches ER=100.0,
   RE=100.0, and SER=100.0 on all 24 locally executable gold SQLite cases in
   the current manifest slice.
-- Latest Spider2-DBT 68-task deterministic BoyueSQL evidence is recorded in
+- Latest Spider2-DBT 68-task deterministic EC-SQL evidence is recorded in
   `artifacts/spider2_dbt68_v10_snapshot.md` and
   `artifacts/spider2_dbt_llm_edit_dbt68_v10b_full.json`:
   - `cases`: 68
@@ -383,13 +383,13 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
     out locally on a DBT-edit single case. This is current evidence that the
     full SOTA/model comparison should move to the Linux server after the local
     pipeline checks pass.
-- `scripts/run_spider2_sqlite_experiment.py` supports schema-only, BoyueSQL,
+- `scripts/run_spider2_sqlite_experiment.py` supports schema-only, EC-SQL,
   no-external-knowledge, no-schema-retrieval, and direct-prompt variants with
   external evidence injection, semantic guards, execution-error repair, and
   incremental JSON output.
 - The SQLite runner now includes a generic RFM analytics decomposer for
   schema-grounded external-evidence questions. On the local Spider2 SQLite
-  `local003` RFM case, BoyueSQL now reaches `ER=100.0`, `RE=100.0`, and
+  `local003` RFM case, EC-SQL now reaches `ER=100.0`, `RE=100.0`, and
   `SER=100.0` in
   `artifacts/spider2_sqlite_local003_rfm_template_guardfix.json`; this replaces
   the earlier state where the same case executed but failed semantic evidence.
@@ -423,7 +423,7 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
   local manifest contains 1,162 rows, 955 unique instances/projects, 226 unique
   logical database names, and 5 engines/settings, so the broad-dataset claim is
   tied to explicit coverage evidence rather than row count alone.
-- Repository-facing documentation has been rewritten around generic BoyueSQL
+- Repository-facing documentation has been rewritten around generic EC-SQL
   setup and server experiments. The old private-Oracle README path
   has been replaced by `readme.md`, `README_MAIN.md`, and
   `SERVER_RUNBOOK.md`.
@@ -510,7 +510,7 @@ DATASET_ROOT=/data/text2sql_datasets bash scripts/download_spider2.sh
   connector support. The adapter boundary is now present, but those remote
   warehouse connectors intentionally require deployment-specific credentials
   and packages.
-- Broaden the DBT-editing BoyueSQL agent beyond the first-twenty checked slice
+- Broaden the DBT-editing EC-SQL agent beyond the first-twenty checked slice
   with more package-aware semantic templates for the remaining Spider2 DBT
   projects, especially cases whose package marts differ from direct source
   grain and cases whose gold-side DBT artifacts are incomplete or inconsistent.

@@ -33,7 +33,7 @@ SQLITE_LLM_LIMIT="${SQLITE_LLM_LIMIT:-135}"
 SQLITE_GOLD_CASE_LIMIT="${SQLITE_GOLD_CASE_LIMIT:-0}"
 SQLITE_GOLD_CASE_OFFSET="${SQLITE_GOLD_CASE_OFFSET:-0}"
 DBT_BASELINE_LIMIT="${DBT_BASELINE_LIMIT:-68}"
-DBT_BOYUESQL_LIMIT="${DBT_BOYUESQL_LIMIT:-68}"
+DBT_EC_SQL_LIMIT="${DBT_EC_SQL_LIMIT:-68}"
 DBT_ABLATION_LIMIT="${DBT_ABLATION_LIMIT:-20}"
 DBT_LLM_LIMIT="${DBT_LLM_LIMIT:-10}"
 
@@ -41,17 +41,17 @@ RUN_SMOKE="${RUN_SMOKE:-1}"
 RUN_SQLITE_SCHEMA_ONLY="${RUN_SQLITE_SCHEMA_ONLY:-1}"
 RUN_SQLITE_LLM="${RUN_SQLITE_LLM:-1}"
 RUN_DBT_BASELINE="${RUN_DBT_BASELINE:-1}"
-RUN_DBT_BOYUESQL="${RUN_DBT_BOYUESQL:-1}"
+RUN_DBT_EC_SQL="${RUN_DBT_EC_SQL:-1}"
 RUN_DBT_ABLATIONS="${RUN_DBT_ABLATIONS:-1}"
 RUN_DBT_LLM="${RUN_DBT_LLM:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 RUN_MODEL_CHECK="${RUN_MODEL_CHECK:-1}"
 SKIP_EXISTING="${SKIP_EXISTING:-0}"
 
-BOYUESQL_MODEL="${BOYUESQL_MODEL:-qwen3-vl:8b}"
+EC_SQL_MODEL="${EC_SQL_MODEL:-qwen3-vl:8b}"
 BASELINE_MODEL="${BASELINE_MODEL:-qwen2.5-coder:7b}"
-DBT_EDIT_MODEL="${DBT_EDIT_MODEL:-${BOYUESQL_MODEL}}"
-BOYUESQL_MODELS="${BOYUESQL_MODELS:-${BOYUESQL_MODEL}}"
+DBT_EDIT_MODEL="${DBT_EDIT_MODEL:-${EC_SQL_MODEL}}"
+EC_SQL_MODELS="${EC_SQL_MODELS:-${EC_SQL_MODEL}}"
 BASELINE_MODELS="${BASELINE_MODELS:-${BASELINE_MODEL},sqlcoder:7b}"
 DBT_EDIT_MODELS="${DBT_EDIT_MODELS:-${DBT_EDIT_MODEL}}"
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
@@ -62,7 +62,7 @@ DBT_TIMEOUT="${DBT_TIMEOUT:-240}"
 SPIDER2_DBT_CURRENT_DATE="${SPIDER2_DBT_CURRENT_DATE:-2024-09-08}"
 PYTHON_BIN="${PYTHON:-python}"
 
-SQLITE_SYSTEMS="${SQLITE_SYSTEMS:-boyuesql,no_semantic_templates,no_external_knowledge,no_schema_retrieval,no_repair}"
+SQLITE_SYSTEMS="${SQLITE_SYSTEMS:-ecsql,no_semantic_templates,no_external_knowledge,no_schema_retrieval,no_repair}"
 SQLITE_BASELINE_SYSTEMS="${SQLITE_BASELINE_SYSTEMS:-direct,din_sql_style,dail_sql_style,self_debug_style,mac_sql_style,chess_style}"
 
 trim() {
@@ -84,10 +84,10 @@ PROJECT_ROOT=${PROJECT_ROOT}
 DATASET_ROOT=${DATASET_ROOT}
 SPIDER_ROOT=${SPIDER_ROOT}
 MANIFEST=${MANIFEST}
-BOYUESQL_MODEL=${BOYUESQL_MODEL}
+EC_SQL_MODEL=${EC_SQL_MODEL}
 BASELINE_MODEL=${BASELINE_MODEL}
 DBT_EDIT_MODEL=${DBT_EDIT_MODEL}
-BOYUESQL_MODELS=${BOYUESQL_MODELS}
+EC_SQL_MODELS=${EC_SQL_MODELS}
 BASELINE_MODELS=${BASELINE_MODELS}
 DBT_EDIT_MODELS=${DBT_EDIT_MODELS}
 OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
@@ -104,14 +104,14 @@ SQLITE_LLM_LIMIT=${SQLITE_LLM_LIMIT}
 SQLITE_GOLD_CASE_LIMIT=${SQLITE_GOLD_CASE_LIMIT}
 SQLITE_GOLD_CASE_OFFSET=${SQLITE_GOLD_CASE_OFFSET}
 DBT_BASELINE_LIMIT=${DBT_BASELINE_LIMIT}
-DBT_BOYUESQL_LIMIT=${DBT_BOYUESQL_LIMIT}
+DBT_EC_SQL_LIMIT=${DBT_EC_SQL_LIMIT}
 DBT_ABLATION_LIMIT=${DBT_ABLATION_LIMIT}
 DBT_LLM_LIMIT=${DBT_LLM_LIMIT}
 RUN_SMOKE=${RUN_SMOKE}
 RUN_SQLITE_SCHEMA_ONLY=${RUN_SQLITE_SCHEMA_ONLY}
 RUN_SQLITE_LLM=${RUN_SQLITE_LLM}
 RUN_DBT_BASELINE=${RUN_DBT_BASELINE}
-RUN_DBT_BOYUESQL=${RUN_DBT_BOYUESQL}
+RUN_DBT_EC_SQL=${RUN_DBT_EC_SQL}
 RUN_DBT_ABLATIONS=${RUN_DBT_ABLATIONS}
 RUN_DBT_LLM=${RUN_DBT_LLM}
 DRY_RUN=${DRY_RUN}
@@ -127,7 +127,7 @@ EOF
 echo "[server-exp] project: ${PROJECT_ROOT}"
 echo "[server-exp] spider root: ${SPIDER_ROOT}"
 echo "[server-exp] output dir: ${OUT_DIR}"
-echo "[server-exp] BoyueSQL models: ${BOYUESQL_MODELS}"
+echo "[server-exp] EC-SQL models: ${EC_SQL_MODELS}"
 echo "[server-exp] baseline models: ${BASELINE_MODELS}"
 echo "[server-exp] dry run: ${DRY_RUN}"
 export SPIDER2_DBT_CURRENT_DATE
@@ -138,11 +138,11 @@ if [ "${DRY_RUN}" = "1" ]; then
   cat > "${OUT_DIR}/planned_steps.txt" <<EOF
 Smoke gate: RUN_SMOKE=${RUN_SMOKE}, SQLite limit=${SQLITE_SMOKE_LIMIT}, DBT limit=${DBT_SMOKE_LIMIT}
 SQLite schema-only: RUN_SQLITE_SCHEMA_ONLY=${RUN_SQLITE_SCHEMA_ONLY}, limit=${SQLITE_SCHEMA_ONLY_LIMIT}
-SQLite BoyueSQL/ablations: RUN_SQLITE_LLM=${RUN_SQLITE_LLM}, systems=${SQLITE_SYSTEMS}, models=${BOYUESQL_MODELS}, limit=${SQLITE_LLM_LIMIT}
+SQLite EC-SQL/ablations: RUN_SQLITE_LLM=${RUN_SQLITE_LLM}, systems=${SQLITE_SYSTEMS}, models=${EC_SQL_MODELS}, limit=${SQLITE_LLM_LIMIT}
 SQLite SOTA-style baselines: RUN_SQLITE_LLM=${RUN_SQLITE_LLM}, systems=${SQLITE_BASELINE_SYSTEMS}, models=${BASELINE_MODELS}, limit=${SQLITE_LLM_LIMIT}
 SQLite gold slice: offset=${SQLITE_GOLD_CASE_OFFSET}, gold_case_limit=${SQLITE_GOLD_CASE_LIMIT}
 DBT starter baseline: RUN_DBT_BASELINE=${RUN_DBT_BASELINE}, limit=${DBT_BASELINE_LIMIT}
-DBT deterministic BoyueSQL: RUN_DBT_BOYUESQL=${RUN_DBT_BOYUESQL}, limit=${DBT_BOYUESQL_LIMIT}
+DBT deterministic EC-SQL: RUN_DBT_EC_SQL=${RUN_DBT_EC_SQL}, limit=${DBT_EC_SQL_LIMIT}
 DBT deterministic ablations: RUN_DBT_ABLATIONS=${RUN_DBT_ABLATIONS}, limit=${DBT_ABLATION_LIMIT}
 DBT LLM editing: RUN_DBT_LLM=${RUN_DBT_LLM}, models=${DBT_EDIT_MODELS}, limit=${DBT_LLM_LIMIT}
 Skip existing JSON outputs: SKIP_EXISTING=${SKIP_EXISTING}
@@ -167,7 +167,7 @@ run_json_step() {
 if [ "${RUN_MODEL_CHECK}" = "1" ] && { [ "${RUN_SQLITE_LLM}" = "1" ] || [ "${RUN_DBT_LLM}" = "1" ]; }; then
   model_check_args=(--base-url "${OLLAMA_BASE_URL}" --timeout 15)
   if [ "${RUN_SQLITE_LLM}" = "1" ]; then
-    model_check_args+=(--model "${BOYUESQL_MODELS}" --model "${BASELINE_MODELS}")
+    model_check_args+=(--model "${EC_SQL_MODELS}" --model "${BASELINE_MODELS}")
   fi
   if [ "${RUN_DBT_LLM}" = "1" ]; then
     model_check_args+=(--model "${DBT_EDIT_MODELS}")
@@ -212,15 +212,15 @@ if [ "${RUN_SQLITE_SCHEMA_ONLY}" = "1" ]; then
 fi
 
 if [ "${RUN_SQLITE_LLM}" = "1" ]; then
-  IFS=',' read -r -a BOYUESQL_MODEL_LIST <<< "${BOYUESQL_MODELS}"
-  for MODEL_NAME_RAW in "${BOYUESQL_MODEL_LIST[@]}"; do
+  IFS=',' read -r -a EC_SQL_MODEL_LIST <<< "${EC_SQL_MODELS}"
+  for MODEL_NAME_RAW in "${EC_SQL_MODEL_LIST[@]}"; do
     MODEL_NAME="$(trim "${MODEL_NAME_RAW}")"
     if [ -z "${MODEL_NAME}" ]; then
       continue
     fi
     MODEL_SLUG="$(slugify "${MODEL_NAME}")"
-    SQLITE_BOYUESQL_OUT="${OUT_DIR}/spider2_sqlite_boyuesql_ablation_${MODEL_SLUG}.json"
-    run_json_step "SQLite BoyueSQL and ablation systems: ${MODEL_NAME}" "${SQLITE_BOYUESQL_OUT}" \
+    SQLITE_EC_SQL_OUT="${OUT_DIR}/spider2_sqlite_ecsql_ablation_${MODEL_SLUG}.json"
+    run_json_step "SQLite EC-SQL and ablation systems: ${MODEL_NAME}" "${SQLITE_EC_SQL_OUT}" \
       "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/run_spider2_sqlite_experiment.py" \
       --manifest "${MANIFEST}" \
       --spider-root "${SPIDER_ROOT}" \
@@ -235,7 +235,7 @@ if [ "${RUN_SQLITE_LLM}" = "1" ]; then
       --num-predict "${NUM_PREDICT}" \
       --timeout "${LLM_TIMEOUT}" \
       --max-repairs 5 \
-      --out "${SQLITE_BOYUESQL_OUT}"
+      --out "${SQLITE_EC_SQL_OUT}"
   done
 
   IFS=',' read -r -a BASELINE_MODEL_LIST <<< "${BASELINE_MODELS}"
@@ -274,12 +274,12 @@ if [ "${RUN_DBT_BASELINE}" = "1" ]; then
     --timeout "${DBT_TIMEOUT}"
 fi
 
-run_dbt_boyuesql_no_llm() {
+run_dbt_ecsql_no_llm() {
   local label="$1"
   local limit="$2"
   shift 2
   local output="${OUT_DIR}/spider2_dbt_llm_edit_${label}.json"
-  run_json_step "DBT BoyueSQL deterministic edit: ${label}" "${output}" \
+  run_json_step "DBT EC-SQL deterministic edit: ${label}" "${output}" \
     "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/run_spider2_dbt_llm_edit_experiment.py" \
     --spider-root "${SPIDER_ROOT}" \
     --limit "${limit}" \
@@ -292,8 +292,8 @@ run_dbt_boyuesql_no_llm() {
     "$@"
 }
 
-if [ "${RUN_DBT_BOYUESQL}" = "1" ]; then
-  run_dbt_boyuesql_no_llm "boyuesql_deterministic_full" "${DBT_BOYUESQL_LIMIT}" \
+if [ "${RUN_DBT_EC_SQL}" = "1" ]; then
+  run_dbt_ecsql_no_llm "ecsql_deterministic_full" "${DBT_EC_SQL_LIMIT}" \
     --missing-ref-fallback \
     --missing-source-fallback \
     --duckdb-type-fallback \
@@ -303,34 +303,34 @@ if [ "${RUN_DBT_BOYUESQL}" = "1" ]; then
 fi
 
 if [ "${RUN_DBT_ABLATIONS}" = "1" ]; then
-  run_dbt_boyuesql_no_llm "boyuesql_ablation_no_declared_model_synthesis" "${DBT_ABLATION_LIMIT}" \
+  run_dbt_ecsql_no_llm "ecsql_ablation_no_declared_model_synthesis" "${DBT_ABLATION_LIMIT}" \
     --missing-ref-fallback \
     --missing-source-fallback \
     --duckdb-type-fallback \
     --declared-column-fallback \
     --declared-model-fallback
 
-  run_dbt_boyuesql_no_llm "boyuesql_ablation_no_duckdb_type_repair" "${DBT_ABLATION_LIMIT}" \
+  run_dbt_ecsql_no_llm "ecsql_ablation_no_duckdb_type_repair" "${DBT_ABLATION_LIMIT}" \
     --missing-ref-fallback \
     --missing-source-fallback \
     --declared-column-fallback \
     --declared-model-synthesis \
     --declared-model-fallback
 
-  run_dbt_boyuesql_no_llm "boyuesql_ablation_no_missing_ref_source_fallback" "${DBT_ABLATION_LIMIT}" \
+  run_dbt_ecsql_no_llm "ecsql_ablation_no_missing_ref_source_fallback" "${DBT_ABLATION_LIMIT}" \
     --duckdb-type-fallback \
     --declared-column-fallback \
     --declared-model-synthesis \
     --declared-model-fallback
 
-  run_dbt_boyuesql_no_llm "boyuesql_ablation_no_declared_column_completion" "${DBT_ABLATION_LIMIT}" \
+  run_dbt_ecsql_no_llm "ecsql_ablation_no_declared_column_completion" "${DBT_ABLATION_LIMIT}" \
     --missing-ref-fallback \
     --missing-source-fallback \
     --duckdb-type-fallback \
     --declared-model-synthesis \
     --declared-model-fallback
 
-  run_dbt_boyuesql_no_llm "boyuesql_ablation_no_related_dimension_enrichment" "${DBT_ABLATION_LIMIT}" \
+  run_dbt_ecsql_no_llm "ecsql_ablation_no_related_dimension_enrichment" "${DBT_ABLATION_LIMIT}" \
     --missing-ref-fallback \
     --missing-source-fallback \
     --duckdb-type-fallback \
@@ -339,7 +339,7 @@ if [ "${RUN_DBT_ABLATIONS}" = "1" ]; then
     --declared-model-fallback \
     --disable-related-dimension-enrichment
 
-  run_dbt_boyuesql_no_llm "boyuesql_ablation_no_fact_pivot_synthesis" "${DBT_ABLATION_LIMIT}" \
+  run_dbt_ecsql_no_llm "ecsql_ablation_no_fact_pivot_synthesis" "${DBT_ABLATION_LIMIT}" \
     --missing-ref-fallback \
     --missing-source-fallback \
     --duckdb-type-fallback \
@@ -349,7 +349,7 @@ if [ "${RUN_DBT_ABLATIONS}" = "1" ]; then
     --disable-long-to-wide-pivot \
     --disable-fact-dimension-summary
 
-  run_dbt_boyuesql_no_llm "boyuesql_ablation_no_final_failed_model_placeholder" "${DBT_ABLATION_LIMIT}" \
+  run_dbt_ecsql_no_llm "ecsql_ablation_no_final_failed_model_placeholder" "${DBT_ABLATION_LIMIT}" \
     --missing-ref-fallback \
     --missing-source-fallback \
     --duckdb-type-fallback \

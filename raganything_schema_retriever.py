@@ -141,7 +141,7 @@ class RAGAnythingSchemaRetriever:
         signature = self._adapter.dictionary_signature(self.data_dict)
         schema_dir = self.working_dir / f"schema_{signature}"
         schema_dir.mkdir(parents=True, exist_ok=True)
-        marker_path = schema_dir / "boyuesql_schema_kg.marker.json"
+        marker_path = schema_dir / "ecsql_schema_kg.marker.json"
 
         embedding_dim = int(os.environ.get("RAGANYTHING_EMBEDDING_DIM", "0"))
         if embedding_dim <= 0:
@@ -178,7 +178,7 @@ class RAGAnythingSchemaRetriever:
                 self.data_dict, file_path=str(self.dictionary_path)
             )
             await self._lightrag.ainsert_custom_kg(
-                custom_kg, full_doc_id=f"boyuesql-schema-{signature}"
+                custom_kg, full_doc_id=f"ecsql-schema-{signature}"
             )
             marker_path.write_text(
                 json.dumps(

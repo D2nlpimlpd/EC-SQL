@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${VENV_DIR:-${PROJECT_ROOT}/.venv}"
-APP_ENTRY="${APP_ENTRY:-boyuesql_service.py}"
+APP_ENTRY="${APP_ENTRY:-ecsql_service.py}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-5000}"
 
@@ -24,11 +24,11 @@ fi
 export FLASK_RUN_HOST="${HOST}"
 export FLASK_RUN_PORT="${PORT}"
 export DATASET_ROOT="${DATASET_ROOT:-/data/text2sql_datasets}"
-export BOYUESQL_DIALECT="${BOYUESQL_DIALECT:-sqlite}"
+export EC_SQL_DIALECT="${EC_SQL_DIALECT:-sqlite}"
 
 if [ ! -f "${PROJECT_ROOT}/${APP_ENTRY}" ]; then
   echo "Application entry file not found: ${PROJECT_ROOT}/${APP_ENTRY}" >&2
-  echo "Set APP_ENTRY to a valid Python file, for example APP_ENTRY=boyuesql_service.py." >&2
+  echo "Set APP_ENTRY to a valid Python file, for example APP_ENTRY=ecsql_service.py." >&2
   exit 1
 fi
 

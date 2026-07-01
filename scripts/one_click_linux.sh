@@ -41,7 +41,7 @@ Modes:
   diagnostics Write run diagnostics and package a pending result bundle for troubleshooting.
   upload-packet Package the release, checksums, handoff docs, and acceptance contract for server upload.
   audit      Audit current goal readiness and list PASS/FAIL/PENDING evidence.
-  service    Ensure setup, then start boyuesql_service.py.
+  service    Ensure setup, then start ecsql_service.py.
   all        Ensure setup, run full benchmark, then start the service.
 
 Useful environment variables:
@@ -52,7 +52,7 @@ Useful environment variables:
   SKIP_SETUP=1
   RUN_ID=my_server_run
   SKIP_EXISTING=1
-  BOYUESQL_MODELS=qwen3-vl:8b
+  EC_SQL_MODELS=qwen3-vl:8b
   BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b
   HF_BASELINE_MODELS=NumbersStation/nsql-6B,deepseek-ai/deepseek-coder-6.7b-instruct
   HF_EXTRA_MODELS=
@@ -73,7 +73,7 @@ run_preflight() {
     --manifest "${MANIFEST}"
     --min-free-gb "${PREFLIGHT_MIN_FREE_GB:-5}"
     --ollama-base-url "${OLLAMA_BASE_URL:-http://localhost:11434}"
-    --model "${BOYUESQL_MODELS:-${BOYUESQL_MODEL:-qwen3-vl:8b}}"
+    --model "${EC_SQL_MODELS:-${EC_SQL_MODEL:-qwen3-vl:8b}}"
     --model "${BASELINE_MODELS:-${BASELINE_MODEL:-qwen2.5-coder:7b},sqlcoder:7b}"
   )
   if [ "${PREFLIGHT_REQUIRE_DATASET:-0}" = "1" ]; then
@@ -147,7 +147,7 @@ run_models() {
   echo "[one-click] pulling Ollama models"
   "${PYTHON_BOOTSTRAP}" "${PROJECT_ROOT}/scripts/pull_ollama_models.py" \
     --base-url "${OLLAMA_BASE_URL:-http://localhost:11434}" \
-    --model "${BOYUESQL_MODELS:-${BOYUESQL_MODEL:-qwen3-vl:8b}}" \
+    --model "${EC_SQL_MODELS:-${EC_SQL_MODEL:-qwen3-vl:8b}}" \
     --model "${BASELINE_MODELS:-${BASELINE_MODEL:-qwen2.5-coder:7b},sqlcoder:7b}" \
     --timeout "${OLLAMA_PULL_TIMEOUT:-1800}"
   if [ "${HF_SKIP_DOWNLOAD:-0}" = "1" ]; then
@@ -200,8 +200,8 @@ run_smoke() {
   SQLITE_SCHEMA_ONLY_LIMIT="${SQLITE_SCHEMA_ONLY_LIMIT:-5}" \
   RUN_SQLITE_LLM=0 \
   RUN_DBT_BASELINE=0 \
-  RUN_DBT_BOYUESQL=1 \
-  DBT_BOYUESQL_LIMIT="${DBT_BOYUESQL_LIMIT:-2}" \
+  RUN_DBT_EC_SQL=1 \
+  DBT_EC_SQL_LIMIT="${DBT_EC_SQL_LIMIT:-2}" \
   RUN_DBT_ABLATIONS=1 \
   DBT_ABLATION_LIMIT="${DBT_ABLATION_LIMIT:-2}" \
   RUN_DBT_LLM=0 \

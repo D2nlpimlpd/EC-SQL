@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Baseline metadata used by BoyueSQL experiment aggregation. The local *_style systems are resource-compatible prompt-style proxies executed inside the unified Spider2 runner; they are not official reproductions of the corresponding papers or repositories.",
+  "description": "Baseline metadata used by EC-SQL experiment aggregation. The local *_style systems are resource-compatible prompt-style proxies executed inside the unified Spider2 runner; they are not official reproductions of the corresponding papers or repositories.",
   "systems": {
     "direct": {
       "display_name": "Direct prompt",
@@ -60,7 +60,7 @@
       "display_name": "Schema-only fallback",
       "implementation_type": "deterministic_execution_baseline",
       "official_reproduction": false,
-      "baseline_reference": "BoyueSQL internal fallback",
+      "baseline_reference": "EC-SQL internal fallback",
       "reference_path": "",
       "report_label": "Schema-only executable fallback",
       "notes": "A deterministic executable fallback used to separate execution safety from semantic correctness."
@@ -72,7 +72,7 @@
       "baseline_reference": "Spider2 DBT starter artifacts",
       "reference_path": "",
       "report_label": "DBT starter-project baseline",
-      "notes": "Runs the released starter project without BoyueSQL repair."
+      "notes": "Runs the released starter project without EC-SQL repair."
     }
   },
   "model_notes": {

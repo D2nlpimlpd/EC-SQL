@@ -11,19 +11,19 @@ MANIFEST_PATH = PROJECT_ROOT / "baselines" / "baseline_manifest.json"
 
 
 def _default_metadata(system: str, model: str = "") -> Dict[str, str]:
-    if system == "boyuesql" or system.startswith("boyuesql"):
+    if system == "ecsql" or system.startswith("ecsql"):
         return {
             "implementation_type": "proposed_method",
             "official_reproduction": "n/a",
-            "baseline_reference": "BoyueSQL",
-            "report_label": "BoyueSQL",
+            "baseline_reference": "EC-SQL",
+            "report_label": "EC-SQL",
             "baseline_note": "",
         }
     if system.startswith("no_"):
         return {
-            "implementation_type": "boyuesql_ablation",
+            "implementation_type": "ecsql_ablation",
             "official_reproduction": "n/a",
-            "baseline_reference": "BoyueSQL ablation",
+            "baseline_reference": "EC-SQL ablation",
             "report_label": system,
             "baseline_note": "",
         }

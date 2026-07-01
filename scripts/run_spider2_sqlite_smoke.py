@@ -12,8 +12,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from boyuesql_generic import SQLiteDialect
-from boyuesql_generic.dictionary import from_sqlite_database
+from ecsql_generic import SQLiteDialect
+from ecsql_generic.dictionary import from_sqlite_database
 
 
 def read_manifest(path: Path) -> List[Dict[str, str]]:

@@ -47,7 +47,7 @@ def packet_remote_dir(args: argparse.Namespace) -> str:
 
 
 def project_remote_dir(args: argparse.Namespace) -> str:
-    return remote_join(packet_remote_dir(args), "boyuesql_spider2_server")
+    return remote_join(packet_remote_dir(args), "ecsql_spider2_server")
 
 
 def remote_extract_zip(archive: str, dest: str) -> str:
@@ -319,7 +319,7 @@ done
 def download(args: argparse.Namespace) -> None:
     summary_remote = remote_join(
         packet_remote_dir(args),
-        "boyuesql_spider2_server",
+        "ecsql_spider2_server",
         "artifacts",
         "server_runs",
         args.run_id,
@@ -449,12 +449,12 @@ STAGE_RUNNERS = {
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Dry-run or execute the BoyueSQL server handoff: local package "
+            "Dry-run or execute the EC-SQL server handoff: local package "
             "preparation, upload, launch, result download, and acceptance."
         )
     )
     parser.add_argument("--host", required=True, help="SSH target, e.g. user@host.")
-    parser.add_argument("--remote-dir", default="~/boyuesql_spider2_run")
+    parser.add_argument("--remote-dir", default="~/ecsql_spider2_run")
     parser.add_argument("--run-id", default="server_full_spider2")
     parser.add_argument(
         "--stage",

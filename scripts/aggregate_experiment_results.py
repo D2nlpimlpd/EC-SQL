@@ -315,7 +315,7 @@ def path_pattern_candidates(pattern: str) -> List[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Aggregate BoyueSQL/Spider2 experiment JSON artifacts")
+    parser = argparse.ArgumentParser(description="Aggregate EC-SQL/Spider2 experiment JSON artifacts")
     parser.add_argument(
         "--inputs",
         nargs="+",

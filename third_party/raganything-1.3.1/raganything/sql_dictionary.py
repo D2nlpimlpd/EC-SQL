@@ -67,9 +67,9 @@ def _env_tokens(name: str, default: str) -> Set[str]:
 def _is_code_table(table_name: str, table_cn: str = "") -> bool:
     name = table_name.upper()
     cn = table_cn or ""
-    prefixes = _env_tokens("BOYUESQL_CODE_TABLE_PREFIXES", "BM_,ZD_,CODE_,DICT_,DIM_,LOOKUP_")
-    infixes = _env_tokens("BOYUESQL_CODE_TABLE_INFIXES", "_BM_,_CODE_,_DICT_,_LOOKUP_")
-    cn_tokens = _env_tokens("BOYUESQL_CODE_TABLE_LABELS", "字典,编码,代码,码表,lookup,dictionary")
+    prefixes = _env_tokens("EC_SQL_CODE_TABLE_PREFIXES", "BM_,ZD_,CODE_,DICT_,DIM_,LOOKUP_")
+    infixes = _env_tokens("EC_SQL_CODE_TABLE_INFIXES", "_BM_,_CODE_,_DICT_,_LOOKUP_")
+    cn_tokens = _env_tokens("EC_SQL_CODE_TABLE_LABELS", "字典,编码,代码,码表,lookup,dictionary")
     return (
         any(name.startswith(prefix) for prefix in prefixes)
         or any(token in name for token in infixes)
@@ -257,11 +257,11 @@ def dictionary_signature(data: Dict[str, Any]) -> str:
 def is_join_key(column: str) -> bool:
     col = column.upper()
     excluded = _env_tokens(
-        "BOYUESQL_JOIN_KEY_EXCLUDE_TOKENS",
+        "EC_SQL_JOIN_KEY_EXCLUDE_TOKENS",
         "DATE,TIME,STATUS_NAME,DESC,DESCRIPTION,NOTE,TEXT",
     )
-    exact = _env_tokens("BOYUESQL_JOIN_KEY_EXACT", "ID,CODE,BM,KEY")
-    suffixes = _env_tokens("BOYUESQL_JOIN_KEY_SUFFIXES", "_ID,_NO,_CODE,_BM,_KEY")
+    exact = _env_tokens("EC_SQL_JOIN_KEY_EXACT", "ID,CODE,BM,KEY")
+    suffixes = _env_tokens("EC_SQL_JOIN_KEY_SUFFIXES", "_ID,_NO,_CODE,_BM,_KEY")
     if any(token in col for token in excluded):
         return False
     return col in exact or any(col.endswith(suffix) for suffix in suffixes)

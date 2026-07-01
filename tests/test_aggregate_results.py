@@ -9,7 +9,7 @@ from scripts.register_external_baseline_result import build_payload
 class AggregateExperimentResultsTests(unittest.TestCase):
     def test_infers_sqlite_suite_from_model_matrix_filename(self) -> None:
         self.assertEqual(
-            infer_suite(Path("spider2_sqlite_boyuesql_ablation_qwen3-vl_8b.json"), {}),
+            infer_suite(Path("spider2_sqlite_ecsql_ablation_qwen3-vl_8b.json"), {}),
             "spider2-sqlite",
         )
         self.assertEqual(

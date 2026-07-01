@@ -316,9 +316,9 @@ def build_report(markdown_out: Path, csv_out: Path) -> None:
 
     current = main_rows[-1]
     report = [
-        "# BoyueSQL Spider2 Evidence Report",
+        "# EC-SQL Spider2 Evidence Report",
         "",
-        "This generated report summarizes the current reproducible evidence for the generalized BoyueSQL Spider2 work. It is built only from saved experiment artifacts; it does not rerun models or database workloads.",
+        "This generated report summarizes the current reproducible evidence for the generalized EC-SQL Spider2 work. It is built only from saved experiment artifacts; it does not rerun models or database workloads.",
         "",
         "## Current Claim Snapshot",
         "",
@@ -378,7 +378,7 @@ def build_report(markdown_out: Path, csv_out: Path) -> None:
         "",
         "## SQLite LLM Gold-10 Comparison",
         "",
-        "This ten-case local gold-evaluable comparison extends the previous sanity set and includes the public-schema fixes for IPL, Brazilian e-commerce, and Pagila tasks. Baseline rows are from the same ten gold cases, while the BoyueSQL row reflects the latest semantic-template run.",
+        "This ten-case local gold-evaluable comparison extends the previous sanity set and includes the public-schema fixes for IPL, Brazilian e-commerce, and Pagila tasks. Baseline rows are from the same ten gold cases, while the EC-SQL row reflects the latest semantic-template run.",
         "",
         markdown_table(
             sqlite_llm_gold10_rows,
@@ -416,9 +416,9 @@ def build_report(markdown_out: Path, csv_out: Path) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build BoyueSQL Spider2 evidence Markdown and CSV reports.")
-    parser.add_argument("--markdown-out", default=str(ARTIFACTS / "boyuesql_evidence_report.md"))
-    parser.add_argument("--csv-out", default=str(ARTIFACTS / "boyuesql_evidence_table.csv"))
+    parser = argparse.ArgumentParser(description="Build EC-SQL Spider2 evidence Markdown and CSV reports.")
+    parser.add_argument("--markdown-out", default=str(ARTIFACTS / "ecsql_evidence_report.md"))
+    parser.add_argument("--csv-out", default=str(ARTIFACTS / "ecsql_evidence_table.csv"))
     return parser.parse_args()
 
 

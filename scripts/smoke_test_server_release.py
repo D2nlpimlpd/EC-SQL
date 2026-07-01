@@ -19,7 +19,7 @@ from scripts.check_linux_shell_scripts import find_bash
 
 
 KEY_PYTHON_FILES = [
-    "boyuesql_service.py",
+    "ecsql_service.py",
     "scripts/server_preflight.py",
     "scripts/check_linux_shell_scripts.py",
     "scripts/plan_server_matrix.py",
@@ -109,7 +109,7 @@ def smoke_release(archive: Path, checksum: Path, prefix: str) -> list[str]:
         raise RuntimeError("release verification failed:\n" + "\n".join(f"- {error}" for error in release_errors))
 
     notes: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="boyuesql_release_smoke_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ecsql_release_smoke_") as tmp:
         root = extract_release(archive, Path(tmp))
         notes.append(f"extracted={root}")
         shell_count = assert_lf_only_shell_scripts(root)
@@ -153,10 +153,10 @@ def smoke_release(archive: Path, checksum: Path, prefix: str) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Extract and smoke-test the clean BoyueSQL server release package.")
-    parser.add_argument("--archive", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.zip"))
-    parser.add_argument("--checksum", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.sha256"))
-    parser.add_argument("--prefix", default="boyuesql_spider2_server")
+    parser = argparse.ArgumentParser(description="Extract and smoke-test the clean EC-SQL server release package.")
+    parser.add_argument("--archive", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.zip"))
+    parser.add_argument("--checksum", default=str(PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.sha256"))
+    parser.add_argument("--prefix", default="ecsql_spider2_server")
     args = parser.parse_args()
 
     try:

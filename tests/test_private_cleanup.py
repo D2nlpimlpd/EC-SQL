@@ -124,19 +124,19 @@ class PrivateCleanupTests(unittest.TestCase):
 
         self.assertIn("FORBIDDEN_RELEASE_FILENAMES", verifier)
         self.assertIn("ase.tex", verifier)
-        self.assertIn("boyuesql_icdm_merged_figures.tex", verifier)
-        self.assertIn("figure1_boyuesql.pdf", verifier)
+        self.assertIn("ecsql_icdm_merged_figures.tex", verifier)
+        self.assertIn("figure1_ecsql.pdf", verifier)
         self.assertIn("unexpected TeX file present in release", verifier)
-        self.assertIn("boyuesql_dialect=oracle", verifier)
+        self.assertIn("ecsql_dialect=oracle", verifier)
         self.assertIn("defaults runtime_config to Oracle", verifier)
 
     def test_server_release_has_no_private_schema_terms_when_present(self) -> None:
-        archive = PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.zip"
-        checksum = PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.sha256"
+        archive = PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.zip"
+        checksum = PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.sha256"
         if not archive.exists():
             self.skipTest("server release package has not been built")
 
-        errors = verify_archive(archive, checksum, "boyuesql_spider2_server")
+        errors = verify_archive(archive, checksum, "ecsql_spider2_server")
 
         self.assertEqual(errors, [])
 

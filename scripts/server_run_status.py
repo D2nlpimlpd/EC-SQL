@@ -48,7 +48,7 @@ def planned_artifact_status(out_dir: Path, limit: int = 20) -> tuple[int, int, l
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Show status for a BoyueSQL server benchmark run.")
+    parser = argparse.ArgumentParser(description="Show status for a EC-SQL server benchmark run.")
     parser.add_argument("--run-id", default=os.environ.get("RUN_ID", ""))
     parser.add_argument("--out-dir", default=os.environ.get("OUT_DIR", ""))
     parser.add_argument("--tail", type=int, default=40, help="Log lines to print.")

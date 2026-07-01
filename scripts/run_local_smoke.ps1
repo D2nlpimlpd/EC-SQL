@@ -6,7 +6,7 @@ param(
     [int]$DbtSmokeLimit = 2,
     [int]$SchemaOnlyLimit = 8,
     [switch]$WithLlm,
-    [string]$BoyueSqlModel = "qwen3-vl:8b",
+    [string]$EcSqlModel = "qwen3-vl:8b",
     [string]$BaselineModels = "qwen2.5-coder:7b,sqlcoder:7b",
     [int]$LlmLimit = 2,
     [string]$OllamaBaseUrl = "http://localhost:11434"
@@ -69,7 +69,7 @@ RUN_ID=$RunId
 PROJECT_ROOT=$ProjectRoot
 SPIDER_ROOT=$SpiderRoot
 PYTHON=$PythonExe
-BOYUESQL_MODELS=$BoyueSqlModel
+EC_SQL_MODELS=$EcSqlModel
 BASELINE_MODELS=$BaselineModels
 WITH_LLM=$($WithLlm.IsPresent)
 "@ | Set-Content -Path (Join-Path $OutDir "run_config.env") -Encoding UTF8
@@ -108,14 +108,14 @@ if ($WithLlm) {
     Write-Host "[local-smoke] checking local Ollama models"
     & $PythonExe (Join-Path $ProjectRoot "scripts\check_ollama_models.py") `
         --base-url $OllamaBaseUrl `
-        --model $BoyueSqlModel `
+        --model $EcSqlModel `
         --model $BaselineModels
 
     & $PythonExe (Join-Path $ProjectRoot "scripts\run_spider2_sqlite_experiment.py") `
         --manifest $Manifest `
         --spider-root $SpiderRoot `
-        --systems "boyuesql" `
-        --model $BoyueSqlModel `
+        --systems "ecsql" `
+        --model $EcSqlModel `
         --ollama-base-url $OllamaBaseUrl `
         --ollama-api "chat" `
         --limit $LlmLimit `
@@ -123,7 +123,7 @@ if ($WithLlm) {
         --num-predict 2048 `
         --timeout 180 `
         --max-repairs 2 `
-        --out (Join-Path $OutDir "spider2_sqlite_boyuesql_$($BoyueSqlModel -replace '[^A-Za-z0-9._-]+','_').json")
+        --out (Join-Path $OutDir "spider2_sqlite_ecsql_$($EcSqlModel -replace '[^A-Za-z0-9._-]+','_').json")
 
     foreach ($model in ($BaselineModels -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
         & $PythonExe (Join-Path $ProjectRoot "scripts\run_spider2_sqlite_experiment.py") `

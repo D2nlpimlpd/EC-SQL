@@ -130,7 +130,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Bulk-register externally executed official baseline metrics from "
-            "a CSV file as BoyueSQL-compatible JSON artifacts."
+            "a CSV file as EC-SQL-compatible JSON artifacts."
         )
     )
     parser.add_argument("--csv", help="Input CSV with external baseline metrics.")

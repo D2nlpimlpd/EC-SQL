@@ -22,8 +22,8 @@ from scripts.build_server_submission_manifest import write_submission_manifest
 DEFAULT_RUN_ID = "server_full_spider2"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "artifacts" / "server_release"
 DEFAULT_DATASET_ROOT = Path(r"D:\text2sql_datasets\Spider2")
-DEFAULT_RELEASE = PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.zip"
-DEFAULT_CHECKSUM = PROJECT_ROOT / "artifacts" / "server_release" / "boyuesql_spider2_server.sha256"
+DEFAULT_RELEASE = PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.zip"
+DEFAULT_CHECKSUM = PROJECT_ROOT / "artifacts" / "server_release" / "ecsql_spider2_server.sha256"
 DEFAULT_MANIFEST = PROJECT_ROOT / "artifacts" / "spider2_manifest.csv"
 DEFAULT_DBT68 = PROJECT_ROOT / "artifacts" / "spider2_dbt_llm_edit_dbt68_v10b_full.json"
 DEFAULT_SQLITE24 = (
@@ -31,9 +31,9 @@ DEFAULT_SQLITE24 = (
     / "artifacts"
     / "server_runs"
     / "sqlite_llm_server_gold24_v1"
-    / "spider2_sqlite_boyuesql_ablation_qwen2.5-coder_7b.json"
+    / "spider2_sqlite_ecsql_ablation_qwen2.5-coder_7b.json"
 )
-DEFAULT_ABSTRACT = PROJECT_ROOT / "artifacts" / "boyuesql_spider2_abstract.tex"
+DEFAULT_ABSTRACT = PROJECT_ROOT / "artifacts" / "ecsql_spider2_abstract.tex"
 
 
 def sha256_file(path: Path) -> str:
@@ -63,7 +63,7 @@ POLL_SECONDS="${{POLL_SECONDS:-300}}"
 MAX_WAIT_SECONDS="${{MAX_WAIT_SECONDS:-0}}"
 PYTHON="${{PYTHON:-python3}}"
 ROOT="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
-PROJECT_DIR="${{ROOT}}/boyuesql_spider2_server"
+PROJECT_DIR="${{ROOT}}/ecsql_spider2_server"
 
 cd "${{ROOT}}"
 
@@ -335,7 +335,7 @@ def build_manifest_payload(run_id: str, files: dict[str, Path], layout: dict[str
         )
     release_hash, release_name = read_checksum(files["release_checksum"])
     return {
-        "packet_name": "BoyueSQL Spider2 server upload packet",
+        "packet_name": "EC-SQL Spider2 server upload packet",
         "run_id": run_id,
         "release_archive": files["release_archive"].name,
         "release_sha256": release_hash,
@@ -483,7 +483,7 @@ def verify_packet(packet: Path, checksum: Path | None = None) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build or verify a single upload packet for a BoyueSQL server run.")
+    parser = argparse.ArgumentParser(description="Build or verify a single upload packet for a EC-SQL server run.")
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
     parser.add_argument("--archive", default=str(DEFAULT_RELEASE))
@@ -491,7 +491,7 @@ def main() -> int:
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     parser.add_argument("--host", default="user@server.example.com")
-    parser.add_argument("--remote-dir", default="~/boyuesql_spider2_run")
+    parser.add_argument("--remote-dir", default="~/ecsql_spider2_run")
     parser.add_argument("--local-return-dir", default=str(PROJECT_ROOT / "artifacts" / "server_return"))
     parser.add_argument("--verify", action="store_true", help="Verify an existing upload packet instead of building it.")
     parser.add_argument("--packet", default="", help="Packet path for --verify. Defaults to OUT_DIR/RUN_ID_server_upload_packet.zip.")

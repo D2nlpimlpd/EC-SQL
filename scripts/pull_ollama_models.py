@@ -33,7 +33,7 @@ def pull_model(base_url: str, model: str, timeout: float) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Pull required Ollama models for BoyueSQL server benchmarks.")
+    parser = argparse.ArgumentParser(description="Pull required Ollama models for EC-SQL server benchmarks.")
     parser.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL.")
     parser.add_argument("--model", action="append", default=[], help="Model name or comma-separated model list.")
     parser.add_argument("--timeout", type=float, default=1800.0, help="Per-model pull timeout in seconds.")

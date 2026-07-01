@@ -97,10 +97,10 @@ class GoalReadinessAuditTests(unittest.TestCase):
         self._write_server_run(
             "unit_matrix_complete",
             [
-                ("spider2-sqlite", "boyuesql", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
+                ("spider2-sqlite", "ecsql", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
                 ("spider2-sqlite", "direct", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
                 ("spider2-sqlite", "din_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
                 ("spider2-sqlite", "dail_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
@@ -108,12 +108,12 @@ class GoalReadinessAuditTests(unittest.TestCase):
                 ("spider2-sqlite", "direct", "sqlcoder:7b", 24, "sqlite_baselines_sqlcoder.json"),
                 ("spider2-sqlite", "direct", "qwen3:32b", 24, "sqlite_baselines_qwen3_32b.json"),
                 ("spider2-dbt", "existing_project", "", 68, "spider2_dbt_existing_project.json"),
-                ("spider2-dbt", "boyuesql_deterministic_full", "", 68, "spider2_dbt_llm_edit_boyuesql_deterministic_full.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_deterministic_full", "", 68, "spider2_dbt_llm_edit_ecsql_deterministic_full.json"),
+                ("spider2-dbt", "ecsql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
             ],
         )
         check = check_server_matrix("unit_matrix_complete")
@@ -128,10 +128,10 @@ class GoalReadinessAuditTests(unittest.TestCase):
         self._write_server_run(
             "unit_matrix_with_official",
             [
-                ("spider2-sqlite", "boyuesql", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
+                ("spider2-sqlite", "ecsql", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
                 ("spider2-sqlite", "direct", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
                 ("spider2-sqlite", "din_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
                 ("spider2-sqlite", "dail_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
@@ -146,12 +146,12 @@ class GoalReadinessAuditTests(unittest.TestCase):
                 ),
                 ("spider2-sqlite", "direct", "qwen3:32b", 24, "sqlite_baselines_qwen3_32b.json"),
                 ("spider2-dbt", "existing_project", "", 68, "spider2_dbt_existing_project.json"),
-                ("spider2-dbt", "boyuesql_deterministic_full", "", 68, "spider2_dbt_llm_edit_boyuesql_deterministic_full.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
-                ("spider2-dbt", "boyuesql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_deterministic_full", "", 68, "spider2_dbt_llm_edit_ecsql_deterministic_full.json"),
+                ("spider2-dbt", "ecsql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
+                ("spider2-dbt", "ecsql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
             ],
         )
         check = check_server_matrix("unit_matrix_with_official")
@@ -163,9 +163,9 @@ class GoalReadinessAuditTests(unittest.TestCase):
         self._write_server_run(
             "unit_matrix_incomplete",
             [
-                ("spider2-sqlite", "boyuesql", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
+                ("spider2-sqlite", "ecsql", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
                 ("spider2-sqlite", "direct", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
-                ("spider2-dbt", "boyuesql_deterministic_full", "", 68, "spider2_dbt_llm_edit_boyuesql_deterministic_full.json"),
+                ("spider2-dbt", "ecsql_deterministic_full", "", 68, "spider2_dbt_llm_edit_ecsql_deterministic_full.json"),
             ],
         )
         check = check_server_matrix("unit_matrix_incomplete")
@@ -177,7 +177,7 @@ class GoalReadinessAuditTests(unittest.TestCase):
         self._write_server_run(
             "unit_matrix_missing_abstract",
             [
-                ("spider2-sqlite", "boyuesql", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
+                ("spider2-sqlite", "ecsql", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
             ],
             write_abstract=False,
         )
@@ -194,10 +194,10 @@ class GoalReadinessAuditTests(unittest.TestCase):
                 run_dir,
                 run_id,
                 [
-                    ("spider2-sqlite", "boyuesql", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                    ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                    ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
-                    ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_boyuesql.json"),
+                    ("spider2-sqlite", "ecsql", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                    ("spider2-sqlite", "no_semantic_templates", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                    ("spider2-sqlite", "no_external_knowledge", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
+                    ("spider2-sqlite", "no_schema_retrieval", "qwen3-vl:8b", 24, "sqlite_ecsql.json"),
                     ("spider2-sqlite", "direct", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
                     ("spider2-sqlite", "din_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
                     ("spider2-sqlite", "dail_sql_style", "qwen2.5-coder:7b", 24, "sqlite_baselines_qwen.json"),
@@ -205,12 +205,12 @@ class GoalReadinessAuditTests(unittest.TestCase):
                     ("spider2-sqlite", "direct", "sqlcoder:7b", 24, "sqlite_baselines_sqlcoder.json"),
                     ("spider2-sqlite", "direct", "qwen3:32b", 24, "sqlite_baselines_qwen3_32b.json"),
                     ("spider2-dbt", "existing_project", "", 68, "spider2_dbt_existing_project.json"),
-                    ("spider2-dbt", "boyuesql_deterministic_full", "", 68, "spider2_dbt_llm_edit_boyuesql_deterministic_full.json"),
-                    ("spider2-dbt", "boyuesql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
-                    ("spider2-dbt", "boyuesql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
-                    ("spider2-dbt", "boyuesql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
-                    ("spider2-dbt", "boyuesql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
-                    ("spider2-dbt", "boyuesql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
+                    ("spider2-dbt", "ecsql_deterministic_full", "", 68, "spider2_dbt_llm_edit_ecsql_deterministic_full.json"),
+                    ("spider2-dbt", "ecsql_ablation_no_declared_model_synthesis", "", 68, "dbt_ablation.json"),
+                    ("spider2-dbt", "ecsql_ablation_no_duckdb_type_repair", "", 68, "dbt_ablation.json"),
+                    ("spider2-dbt", "ecsql_ablation_no_missing_ref_source_fallback", "", 68, "dbt_ablation.json"),
+                    ("spider2-dbt", "ecsql_ablation_no_declared_column_completion", "", 68, "dbt_ablation.json"),
+                    ("spider2-dbt", "ecsql_ablation_no_related_dimension_enrichment", "", 68, "dbt_ablation.json"),
                 ],
             )
             dataset_root = root / "Spider2"
@@ -330,7 +330,7 @@ class GoalReadinessAuditTests(unittest.TestCase):
         if write_abstract:
             (summary_dir / f"server_{run_id}_abstract.tex").write_text(
                 "\\begin{abstract}\n"
-                f"BoyueSQL Spider2 validated server run {run_id} reports a SOTA-style baseline "
+                f"EC-SQL Spider2 validated server run {run_id} reports a SOTA-style baseline "
                 "comparison and semantic pass rate evidence.\n"
                 "\\end{abstract}\n",
                 encoding="utf-8",

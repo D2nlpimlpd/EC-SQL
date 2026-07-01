@@ -3,8 +3,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from boyuesql_generic.dialects import get_dialect
-from boyuesql_generic.connections import (
+from ecsql_generic.dialects import get_dialect
+from ecsql_generic.connections import (
     DatabaseConfig,
     connect_database,
     default_config_from_env,
@@ -87,18 +87,18 @@ class DialectAdapterTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(fetch_table_columns(cfg, "inferred"), {"ID"})
 
-    def test_config_accepts_boyuesql_dialect_alias(self) -> None:
-        cfg = DatabaseConfig.from_mapping({"BOYUESQL_DIALECT": "sqlite", "DB_PATH": ":memory:"})
+    def test_config_accepts_ecsql_dialect_alias(self) -> None:
+        cfg = DatabaseConfig.from_mapping({"EC_SQL_DIALECT": "sqlite", "DB_PATH": ":memory:"})
         self.assertEqual(cfg.dialect, "sqlite")
         self.assertEqual(cfg.path, ":memory:")
 
     def test_default_config_is_generic_without_oracle_opt_in(self) -> None:
-        with patch.dict("os.environ", {"BOYUESQL_DIALECT": "", "DB_DIALECT": ""}, clear=False):
+        with patch.dict("os.environ", {"EC_SQL_DIALECT": "", "DB_DIALECT": ""}, clear=False):
             cfg = default_config_from_env()
         self.assertEqual(cfg.dialect, "generic")
 
     def test_oracle_config_requires_explicit_dialect(self) -> None:
-        cfg = DatabaseConfig.from_mapping({"BOYUESQL_DIALECT": "oracle"})
+        cfg = DatabaseConfig.from_mapping({"EC_SQL_DIALECT": "oracle"})
         self.assertEqual(cfg.dialect, "oracle")
 
 

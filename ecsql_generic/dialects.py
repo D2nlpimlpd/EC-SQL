@@ -1,4 +1,4 @@
-"""SQL dialect adapters used by the generic BoyueSQL pipeline.
+"""SQL dialect adapters used by the generic EC-SQL pipeline.
 
 The older code path mixed Oracle syntax, validation, and error parsing directly
 inside generation logic.  This module separates those concerns so the same

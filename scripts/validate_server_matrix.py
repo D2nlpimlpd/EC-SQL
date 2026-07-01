@@ -27,7 +27,7 @@ def as_json(check: Check) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate that a server run contains the full BoyueSQL/SOTA/"
+            "Validate that a server run contains the full EC-SQL/SOTA/"
             "ablation matrix required before claiming the goal complete."
         )
     )

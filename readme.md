@@ -1,6 +1,6 @@
-# BoyueSQL
+# EC-SQL
 
-BoyueSQL is a generic Text-to-SQL coordination stack for enterprise schemas.
+EC-SQL is a generic Text-to-SQL coordination stack for enterprise schemas.
 It combines schema retrieval, optional planning, SQL generation, static/live
 validation, iterative repair, and semantic evidence checking. The current
 migration target is database-agnostic evaluation on Spider2 local SQLite and
@@ -21,17 +21,17 @@ Question
 
 ## Generic Layer
 
-- `boyuesql_generic/dialects.py`: SQL dialect adapters for limit/probe/date
+- `ecsql_generic/dialects.py`: SQL dialect adapters for limit/probe/date
   behavior, identifier quoting, select-only validation, and error
   classification.
-- `boyuesql_generic/dictionary.py`: portable schema dictionary loaders for
+- `ecsql_generic/dictionary.py`: portable schema dictionary loaders for
   JSON, SQLite, and DuckDB.
-- `boyuesql_generic/connections.py`: DB-API connection and live-catalog
+- `ecsql_generic/connections.py`: DB-API connection and live-catalog
   adapters. Oracle is loaded lazily only when selected; SQLite and DuckDB can
   run without Oracle client libraries.
-- `boyuesql_generic/retrieval.py`: lightweight schema retrieval and prompt
+- `ecsql_generic/retrieval.py`: lightweight schema retrieval and prompt
   construction utilities.
-- `boyuesql_generic/eval_protocol.py`: result normalization and semantic
+- `ecsql_generic/eval_protocol.py`: result normalization and semantic
   evidence helpers.
 
 ## One-command Linux Setup
@@ -114,7 +114,7 @@ long dataset or model job is started.
 bash scripts/run_server_experiments.sh
 ```
 
-The server experiment runner performs smoke gates, SQLite BoyueSQL ablations,
+The server experiment runner performs smoke gates, SQLite EC-SQL ablations,
 SOTA-style prompt baselines, DBT starter-project evaluation, optional DBT LLM
 editing, result aggregation, and failure diagnostics.
 
@@ -133,7 +133,7 @@ RUN_SMOKE=1 SQLITE_SMOKE_LIMIT=3 DBT_SMOKE_LIMIT=2 \
 RUN_SQLITE_SCHEMA_ONLY=1 SQLITE_SCHEMA_ONLY_LIMIT=3 \
 RUN_SQLITE_LLM=0 \
 RUN_DBT_BASELINE=0 \
-RUN_DBT_BOYUESQL=1 DBT_BOYUESQL_LIMIT=2 \
+RUN_DBT_EC_SQL=1 DBT_EC_SQL_LIMIT=2 \
 RUN_DBT_ABLATIONS=1 DBT_ABLATION_LIMIT=2 \
 RUN_DBT_LLM=0 \
 bash scripts/run_server_experiments.sh
@@ -144,12 +144,12 @@ For a tiny integrated LLM comparison through the same server runner:
 ```bash
 RUN_ID=sqlite_llm_server_tiny \
 RUN_SMOKE=0 RUN_SQLITE_SCHEMA_ONLY=0 RUN_SQLITE_LLM=1 \
-SQLITE_SYSTEMS=boyuesql \
+SQLITE_SYSTEMS=ecsql \
 SQLITE_BASELINE_SYSTEMS=direct,din_sql_style \
 SQLITE_LLM_LIMIT=135 SQLITE_GOLD_CASE_LIMIT=2 \
-BOYUESQL_MODELS=qwen2.5-coder:7b \
+EC_SQL_MODELS=qwen2.5-coder:7b \
 BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b \
-RUN_DBT_BASELINE=0 RUN_DBT_BOYUESQL=0 RUN_DBT_ABLATIONS=0 RUN_DBT_LLM=0 \
+RUN_DBT_BASELINE=0 RUN_DBT_EC_SQL=0 RUN_DBT_ABLATIONS=0 RUN_DBT_LLM=0 \
 NUM_PREDICT=512 LLM_TIMEOUT=180 \
 bash scripts/run_server_experiments.sh
 ```
@@ -158,7 +158,7 @@ Useful overrides:
 
 ```bash
 PYTHON=/path/to/.venv/bin/python \
-BOYUESQL_MODELS=qwen3-vl:8b \
+EC_SQL_MODELS=qwen3-vl:8b \
 BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b \
 OLLAMA_BASE_URL=http://localhost:11434 \
 OLLAMA_API=chat \
@@ -225,8 +225,8 @@ bash scripts/run_full_server_benchmark.sh
 ```
 
 It runs the SQLite smoke/schema-only/LLM matrix, SQLite SOTA-style prompt
-baselines, DBT starter baseline, deterministic DBT BoyueSQL, and DBT
-deterministic ablations. Override `BOYUESQL_MODELS`, `BASELINE_MODELS`,
+baselines, DBT starter baseline, deterministic DBT EC-SQL, and DBT
+deterministic ablations. Override `EC_SQL_MODELS`, `BASELINE_MODELS`,
 `RUN_DBT_LLM`, and the limit variables on larger servers.
 The SOTA-style baseline rows are local prompt-style proxies unless their
 `official_reproduction` field is `true` in the generated summary/evidence CSV.
@@ -253,13 +253,13 @@ The strict audit exits non-zero while any required item is still `FAIL` or
 `PENDING`; in particular, the full server SOTA matrix remains pending until a
 real Linux/server run has produced a summary under
 `artifacts/server_runs/<SERVER_RUN_ID>/summary/`. The server matrix audit
-requires aggregate summary/case/failure reports plus BoyueSQL full results,
+requires aggregate summary/case/failure reports plus EC-SQL full results,
 SQLite ablations, SOTA-style baselines across at least three models, DBT
 baseline/full results, and multiple DBT ablations with non-empty JSON
 artifacts.
 
 For multi-model comparison on a larger server, use comma-separated lists, e.g.
-`BOYUESQL_MODELS=qwen3-vl:8b,mistral:7b` and
+`EC_SQL_MODELS=qwen3-vl:8b,mistral:7b` and
 `BASELINE_MODELS=qwen2.5-coder:7b,sqlcoder:7b,qwen3:32b`.  See
 `SERVER_MODEL_GUIDE.md` for the A100 80GB HF snapshot download list and
 optional heavier Text2SQL/code-model baselines.
@@ -292,8 +292,8 @@ python scripts/finalize_server_result.py \
 The finalizer verifies the bundle, imports it under
 `artifacts/server_runs/<RUN_ID>/`, runs the strict readiness audit with that
 imported run directory, and copies the server-result abstract to
-`artifacts/boyuesql_spider2_server_result_abstract.tex` plus a root-level
-`boyuesql_spider2_server_result_abstract.tex` convenience copy. The lower-level
+`artifacts/ecsql_spider2_server_result_abstract.tex` plus a root-level
+`ecsql_spider2_server_result_abstract.tex` convenience copy. The lower-level
 manual commands remain available when you want to inspect each step:
 
 ```bash
@@ -325,7 +325,7 @@ bash scripts/start_linux.sh
 ```
 
 The startup script activates `.venv` when present, loads `.env`, and runs
-`${APP_ENTRY:-boyuesql_service.py}`. This default entrypoint is the clean
+`${APP_ENTRY:-ecsql_service.py}`. This default entrypoint is the clean
 generic service used by the Spider2 experiments and server deployment package.
 
 ## Clean Server Release Package
@@ -343,15 +343,15 @@ python scripts/smoke_test_server_upload_packet.py \
   --packet artifacts/server_release/server_full_spider2_server_upload_packet.zip \
   --run-doctor --run-diagnostics
 python scripts/smoke_test_server_acceptance_flow.py
-python scripts/build_server_handoff_commands.py --host user@server --remote-dir ~/boyuesql_spider2_run
+python scripts/build_server_handoff_commands.py --host user@server --remote-dir ~/ecsql_spider2_run
 python scripts/run_server_handoff.py --host user@server --stage submit
 ```
 
 The package is written to:
 
 ```text
-artifacts/server_release/boyuesql_spider2_server.zip
-artifacts/server_release/boyuesql_spider2_server.sha256
+artifacts/server_release/ecsql_spider2_server.zip
+artifacts/server_release/ecsql_spider2_server.sha256
 artifacts/server_release/server_full_spider2_server_submission_manifest.json
 artifacts/server_release/server_full_spider2_server_submission_manifest.md
 artifacts/server_release/server_full_spider2_server_upload_packet.zip
@@ -359,7 +359,7 @@ artifacts/server_release/server_full_spider2_server_upload_packet.sha256
 artifacts/server_release/server_full_spider2_server_upload_packet_manifest.json
 ```
 
-The release package contains the generic service, `boyuesql_generic`, scripts,
+The release package contains the generic service, `ecsql_generic`, scripts,
 tests, server requirements, docs, and the local modified RagAnything source
 under `third_party/raganything-1.3.1`.
 The submission manifest records the release SHA-256, local evidence checks,
@@ -429,7 +429,7 @@ OLLAMA_SQL_MODEL=qwen3-vl:8b
 OLLAMA_EMBEDDING_MODEL=qwen3-vl:8b
 STRICT_QWEN3_VL_ONLY=1
 
-BOYUESQL_DIALECT=sqlite
+EC_SQL_DIALECT=sqlite
 DB_PATH=/data/text2sql_datasets/example.sqlite
 DATASET_ROOT=/data/text2sql_datasets
 DATA_DICT_PATH=data_dictionary.json
@@ -437,12 +437,12 @@ RAG_CACHE_DIR=./rag_cache
 MAX_ROWS=500
 ```
 
-For an Oracle deployment, set `BOYUESQL_DIALECT=oracle` and provide
+For an Oracle deployment, set `EC_SQL_DIALECT=oracle` and provide
 `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, and `DB_SERVICE_NAME` through
 `.env`; set `INSTALL_ORACLE=1` before `scripts/setup_linux.sh` only when the
 optional Oracle driver should be installed. For SQLite or DuckDB, set
-`BOYUESQL_DIALECT=sqlite` or
-`BOYUESQL_DIALECT=duckdb` and provide `DB_PATH` or `DB_DATABASE`. The source
+`EC_SQL_DIALECT=sqlite` or
+`EC_SQL_DIALECT=duckdb` and provide `DB_PATH` or `DB_DATABASE`. The source
 tree intentionally does not contain private host, account, service, or schema
 values.
 
@@ -462,7 +462,7 @@ Current local checks cover:
   subset.
 - Spider2-DBT/DuckDB smoke: validates starter/gold DuckDB artifacts and reports
   upstream missing-artifact cases.
-- SQLite BoyueSQL experiments: support `schema_only`, `boyuesql`,
+- SQLite EC-SQL experiments: support `schema_only`, `ecsql`,
   `no_external_knowledge`, `no_schema_retrieval`, `no_repair`, and `direct`.
 - SQLite SOTA-style prompt baselines: `din_sql_style`, `dail_sql_style`,
   `self_debug_style`, `mac_sql_style`, and `chess_style` run under the same

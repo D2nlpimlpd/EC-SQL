@@ -29,12 +29,12 @@ class ServerMatrixPlanTests(unittest.TestCase):
         rows = expected_artifacts(config)
         coverage = coverage_summary(config, rows)
         artifacts = {row["artifact"] for row in rows if row["enabled"] == "1"}
-        self.assertIn("spider2_sqlite_boyuesql_ablation_qwen3-vl_8b.json", artifacts)
+        self.assertIn("spider2_sqlite_ecsql_ablation_qwen3-vl_8b.json", artifacts)
         self.assertIn("spider2_sqlite_sota_baselines_qwen2.5-coder_7b.json", artifacts)
         self.assertIn("spider2_sqlite_sota_baselines_sqlcoder_7b.json", artifacts)
         self.assertIn("spider2_sqlite_sota_baselines_qwen3_32b.json", artifacts)
-        self.assertIn("spider2_dbt_llm_edit_boyuesql_deterministic_full.json", artifacts)
-        self.assertIn("spider2_dbt_llm_edit_boyuesql_ablation_no_duckdb_type_repair.json", artifacts)
+        self.assertIn("spider2_dbt_llm_edit_ecsql_deterministic_full.json", artifacts)
+        self.assertIn("spider2_dbt_llm_edit_ecsql_ablation_no_duckdb_type_repair.json", artifacts)
         self.assertEqual(sum(1 for row in rows if row["stage"] == "dbt_ablation"), 7)
         self.assertEqual(coverage["status"], "PASS")
         checks = {row["requirement"]: row for row in coverage["checks"]}

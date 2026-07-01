@@ -21,7 +21,7 @@ class FailureDiagnosticsTests(unittest.TestCase):
                 },
                 {
                     "instance_id": "s2",
-                    "system": "boyuesql",
+                    "system": "ecsql",
                     "model": "qwen3-vl:8b",
                     "exec_ok": True,
                     "result_exact": True,
@@ -42,7 +42,7 @@ class FailureDiagnosticsTests(unittest.TestCase):
             ]
         }
 
-        rows = failure_rows_for_artifact(Path("spider2_sqlite_boyuesql_ablation_qwen3.json"), payload)
+        rows = failure_rows_for_artifact(Path("spider2_sqlite_ecsql_ablation_qwen3.json"), payload)
         self.assertEqual([row["error_class"] for row in rows], ["invalid_column", "semantic_guard", "null_placeholder"])
         self.assertEqual([row["stage"] for row in rows], ["execution", "semantic_guard", "semantic"])
 
@@ -70,7 +70,7 @@ class FailureDiagnosticsTests(unittest.TestCase):
             "results": [
                 {
                     "instance_id": "s4",
-                    "system": "boyuesql",
+                    "system": "ecsql",
                     "skipped": True,
                     "skip_reason": "gold SQL missing",
                 }

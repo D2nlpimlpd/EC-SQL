@@ -174,7 +174,7 @@ def verify_summary_matrix(zf: zipfile.ZipFile, run_id: str) -> list[str]:
 
     sqlite_rows = [row for row in rows if row.get("suite") == "spider2-sqlite"]
     dbt_rows = [row for row in rows if row.get("suite") == "spider2-dbt"]
-    sqlite_full = [row for row in sqlite_rows if row.get("system") == "boyuesql" and integer(row.get("cases")) >= 20]
+    sqlite_full = [row for row in sqlite_rows if row.get("system") == "ecsql" and integer(row.get("cases")) >= 20]
     sqlite_ablations = {
         str(row.get("system") or "")
         for row in sqlite_rows
@@ -198,7 +198,7 @@ def verify_summary_matrix(zf: zipfile.ZipFile, run_id: str) -> list[str]:
     dbt_full = [
         row
         for row in dbt_rows
-        if "boyuesql_deterministic_full" in str(row.get("system") or "") and integer(row.get("cases")) >= 68
+        if "ecsql_deterministic_full" in str(row.get("system") or "") and integer(row.get("cases")) >= 68
     ]
     dbt_ablations = {
         str(row.get("system") or "")
@@ -206,7 +206,7 @@ def verify_summary_matrix(zf: zipfile.ZipFile, run_id: str) -> list[str]:
         if "ablation" in str(row.get("system") or "") and integer(row.get("cases")) >= 68
     }
     if not sqlite_full:
-        errors.append("missing SQLite BoyueSQL full row with >=20 gold cases")
+        errors.append("missing SQLite EC-SQL full row with >=20 gold cases")
     if len(sqlite_ablations) < 3:
         errors.append(f"missing SQLite ablation coverage: found {len(sqlite_ablations)}, need >=3")
     if len(sqlite_baselines) < 4:
@@ -216,7 +216,7 @@ def verify_summary_matrix(zf: zipfile.ZipFile, run_id: str) -> list[str]:
     if not dbt_baseline:
         errors.append("missing DBT starter-project baseline with 68 cases")
     if not dbt_full:
-        errors.append("missing DBT BoyueSQL deterministic full with 68 cases")
+        errors.append("missing DBT EC-SQL deterministic full with 68 cases")
     if len(dbt_ablations) < 5:
         errors.append(f"missing DBT ablation coverage: found {len(dbt_ablations)}, need >=5")
     return errors
@@ -231,7 +231,7 @@ def verify_server_result_abstract(zf: zipfile.ZipFile, run_id: str) -> list[str]
     required_terms = [
         r"\begin{abstract}",
         r"\end{abstract}",
-        "BoyueSQL",
+        "EC-SQL",
         "Spider2",
         "validated server run",
         "SOTA-style baseline",
@@ -366,7 +366,7 @@ def verify_bundle(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify a returned BoyueSQL server result bundle.")
+    parser = argparse.ArgumentParser(description="Verify a returned EC-SQL server result bundle.")
     parser.add_argument("archive", help="Path to server_<RUN_ID>_result_bundle.zip")
     parser.add_argument("--checksum", default="", help="Optional .sha256 path. Defaults to archive with .sha256 suffix if present.")
     parser.add_argument("--run-id", default="", help="Expected RUN_ID.")

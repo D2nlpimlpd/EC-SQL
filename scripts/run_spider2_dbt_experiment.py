@@ -20,8 +20,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from boyuesql_generic import DuckDBDialect
-from boyuesql_generic.eval_protocol import normalize_cell
+from ecsql_generic import DuckDBDialect
+from ecsql_generic.eval_protocol import normalize_cell
 
 NUMERIC_ABS_TOL = 1.0001e-2
 NUMERIC_REL_TOL = 1e-12
@@ -96,8 +96,8 @@ def large_signature_cell_expression(column: str, data_type: str, dialect: DuckDB
         any(token in type_lower for token in ("double", "float", "real", "decimal", "numeric"))
         and not identifier_like_column(column)
     ):
-        return f"coalesce(cast(round(try_cast({quoted} as double), 2) as varchar), '__BOYUESQL_NULL__')"
-    return f"coalesce(cast({quoted} as varchar), '__BOYUESQL_NULL__')"
+        return f"coalesce(cast(round(try_cast({quoted} as double), 2) as varchar), '__EC_SQL_NULL__')"
+    return f"coalesce(cast({quoted} as varchar), '__EC_SQL_NULL__')"
 
 
 def table_signature(
